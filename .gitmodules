@@ -1,0 +1,7 @@
+[submodule "lvgl"]
+	path = lvgl
+	url = https://github.com/lvgl/lvgl.git
+	branch = release/v8.3
+[submodule "amqtt"]
+	path = amqtt
+	url = https://github.com/dgwynne/amqtt
