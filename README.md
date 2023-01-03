@@ -13,6 +13,22 @@ their own interpretation of short and long presses, etc. It would
 probably make more sense to have MQTT inject LVGL events directly
 rather than pretend to be hardware peripherals.
 
+## But why?
+
+I have a long term plan to get something like a Sonoff NSPanel Pro
+or a Tuya T6E based board running OpenBSD instead of the crippled
+and likely to be an abandonware version of Android that they ship
+with. wslv would be the basis for the user interface they provide.
+
+While LVGL and wscons provide the user interface, MQTT will allow
+it to interact with other hardware or visa versa. eg, pressing a
+button widget on an LVGL interface could send an MQTT message to
+tell another device or Home Assistatn to do something, or a ZigBee
+remote (like the IKEA 5 button remote) could be used as an encoder
+to nagivate an LVGL based interface.
+
+Also, I'm an idiot and make up work for myself.
+
 ## To Do
 
 - map wskbd key codes before sending them to LVGL
