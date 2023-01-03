@@ -23,7 +23,8 @@ with. wslv would be the basis for the user interface they provide.
 While LVGL and wscons provide the user interface, MQTT will allow
 it to interact with other hardware or visa versa. eg, pressing a
 button widget on an LVGL interface could send an MQTT message to
-tell another device or Home Assistatn to do something, or a ZigBee
+tell another device or Home Assistant to do something, a message 
+from a device could change the visible state of a widget, or a ZigBee
 remote (like the IKEA 5 button remote) could be used as an encoder
 to nagivate an LVGL based interface.
 
