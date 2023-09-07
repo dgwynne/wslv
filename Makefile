@@ -121,19 +121,6 @@ OBJS+=${LVGL_DEMO_SRCS:T:.c=.o}
 
 .endif
 
-# amqtt
-
-AMQTT_SRCS=amqtt/amqtt.c
-
-.for S in ${AMQTT_SRCS}
-${S:T:.c=.o}: ${S}
-	${COMPILE.c} -o ${.TARGET} ${.IMPSRC}
-.endfor
-
-OBJS+=${AMQTT_SRCS:T:.c=.o}
-
-CFLAGS+=-I${.CURDIR}/amqtt
-
 # actual program
 
 PROG=wslv
