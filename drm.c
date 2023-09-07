@@ -29,8 +29,6 @@
 /*********************
  *      INCLUDES
  *********************/
-#include "drm.h"
-#if USE_DRM
 
 #include <unistd.h>
 #include <pthread.h>
@@ -49,6 +47,11 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 #include <drm_fourcc.h>
+
+#include "lvgl/lvgl.h"
+
+#define DRM_CONNECTOR_ID -1
+#define DRM_CARD "/dev/dri/card0"
 
 #define DBG_TAG "drm"
 
@@ -882,5 +885,3 @@ void drm_exit(void)
 	close(drm_dev.fd);
 	drm_dev.fd = -1;
 }
-
-#endif

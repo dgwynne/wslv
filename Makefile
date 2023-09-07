@@ -121,13 +121,27 @@ OBJS+=${LVGL_DEMO_SRCS:T:.c=.o}
 
 .endif
 
+# drm
+
+X11DIR=/usr/X11R6
+
+DRM_SRCS=drm.c
+DRM_CFLAGS=-I${X11DIR}/include -I${X11DIR}/include/libdrm
+
+OBJS+=${DRM_SRCS:T:.c=.o}
+
+.for S in ${DRM_SRCS}
+${S:T:.c=.o}: ${S}
+	${COMPILE.c} ${DRM_CFLAGS} -o ${.TARGET} ${.IMPSRC}
+.endfor
+
 # actual program
 
 PROG=wslv
 SRCS=wslv.c
 MAN=
 
-LDADD+=-levent
+LDADD+=-levent -L${X11DIR}/lib -ldrm
 DPADD+=${LIBEVENT}
 
 DEBUG=-g
