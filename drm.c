@@ -776,9 +776,7 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 
 	int ret;
 	struct pollfd pfd;
-	uint64_t tic, toc;
 
-	tic = wslv_ms();
 	do {
 		pfd.fd = drm_dev.fd;
 		pfd.events = POLLIN;
@@ -786,9 +784,6 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 
 		ret = poll(&pfd, 1, INFTIM);
 	} while (ret == -1 && errno == EINTR);
-	toc = wslv_ms();
-
-	printf("%s ts %llu\n", __func__, toc - tic);
 
 	if (ret < 0) {
 		err("select failed: %s", strerror(errno));
