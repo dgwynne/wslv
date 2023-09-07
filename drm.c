@@ -31,7 +31,7 @@
  *********************/
 
 #include <unistd.h>
-#include <pthread.h>
+#include <poll.h>
 #include <time.h>
 #include <sys/time.h>
 #include <stdio.h>
@@ -49,6 +49,7 @@
 #include <drm_fourcc.h>
 
 #include "lvgl/lvgl.h"
+#include "wslv_drm.h"
 
 #define DRM_CONNECTOR_ID -1
 #define DRM_CARD "/dev/dri/card0"
@@ -60,13 +61,17 @@
 #define print(msg, ...)	fprintf(stderr, msg, ##__VA_ARGS__);
 #define err(msg, ...)  print("error: " msg "\n", ##__VA_ARGS__)
 #define info(msg, ...) print(msg "\n", ##__VA_ARGS__)
-#define dbg(msg, ...)  {} //print(DBG_TAG ": " msg "\n", ##__VA_ARGS__)
+#if 1
+#define dbg(msg, ...)  do { } while (0)
+#else
+#define dbg(msg, ...)  print(DBG_TAG ": " msg "\n", ##__VA_ARGS__)
+#endif
 
 struct drm_buffer {
 	uint32_t handle;
 	uint32_t pitch;
 	uint32_t offset;
-	unsigned long int size;
+	size_t size;
 	void *map;
 	uint32_t fb_handle;
 };
@@ -708,7 +713,7 @@ drm_allocate_dumb(struct drm_buffer *buf)
 	buf->pitch = creq.pitch;
 	dbg("pitch %d", buf->pitch);
 	buf->size = creq.size;
-	dbg("size %d", buf->size);
+	dbg("size %zu", buf->size);
 
 	/* prepare buffer for memory mapping */
 	memset(&mreq, 0, sizeof(mreq));
@@ -767,19 +772,28 @@ drm_setup_buffers(void)
 	return (0);
 }
 
+uint64_t wslv_ms(void);
+
 void
 drm_wait_vsync(lv_disp_drv_t *disp_drv)
 {
 	LV_UNUSED(disp_drv);
 
 	int ret;
-	fd_set fds;
-	FD_ZERO(&fds);
-	FD_SET(drm_dev.fd, &fds);
+	struct pollfd pfd;
+	uint64_t tic, toc;
 
+	tic = wslv_ms();
 	do {
-		ret = select(drm_dev.fd + 1, &fds, NULL, NULL, NULL);
+		pfd.fd = drm_dev.fd;
+		pfd.events = POLLIN;
+		pfd.revents = 0;
+
+		ret = poll(&pfd, 1, INFTIM);
 	} while (ret == -1 && errno == EINTR);
+	toc = wslv_ms();
+
+	printf("%s ts %llu\n", __func__, toc - tic);
 
 	if (ret < 0) {
 		err("select failed: %s", strerror(errno));
@@ -788,8 +802,10 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 		return;
 	}
 
-	if (FD_ISSET(drm_dev.fd, &fds))
+	if (ret == 1 && pfd.revents & POLLIN) {
+		dbg("%s handled", __func__);
 		drmHandleEvent(drm_dev.fd, &drm_dev.drm_event_ctx);
+	}
 
 	drmModeAtomicFree(drm_dev.req);
 	drm_dev.req = NULL;
@@ -799,21 +815,20 @@ void
 drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 {
 	struct drm_buffer *fbuf = drm_dev.cur_bufs[1];
+	lv_color_int_t *map = fbuf->map;
 	uint32_t w = (area->x2 - area->x1 + 1);
 	uint32_t h = (area->y2 - area->y1 + 1);
-	int i, y;
+	int x, y;
 
 	dbg("x %d:%d y %d:%d w %d h %d",
 	    area->x1, area->x2, area->y1, area->y2, w, h);
 
-	/* Partial update */
-	if ((w != drm_dev.width || h != drm_dev.height) && drm_dev.cur_bufs[0])
-		memcpy(fbuf->map, drm_dev.cur_bufs[0]->map, fbuf->size);
-
-	for (y = 0, i = area->y1 ; i <= area->y2 ; ++i, ++y) {
-                memcpy((uint8_t *)fbuf->map + (area->x1 * (LV_COLOR_SIZE/8)) + (fbuf->pitch * i),
-		    (uint8_t *)color_p + (w * (LV_COLOR_SIZE/8) * y),
-		    w * (LV_COLOR_SIZE/8));
+	for (y = area->y1; y <= area->y2; y++) {
+		lv_color_int_t *row = map + (drm_dev.width * y);
+		for (x = area->x1; x <= area->x2; x++) {
+			row[x] = color_p->full;
+			color_p++;
+		}
 	}
 
 	if (drm_dev.req)
@@ -857,7 +872,7 @@ drm_get_sizes(lv_coord_t *width, lv_coord_t *height, uint32_t *dpi)
 		*dpi = DIV_ROUND_UP(drm_dev.width * 25400, drm_dev.mmWidth * 1000);
 }
 
-void
+int
 drm_init(void)
 {
 	int ret;
@@ -866,7 +881,7 @@ drm_init(void)
 	if (ret) {
 		close(drm_dev.fd);
 		drm_dev.fd = -1;
-		return;
+		return (-1);
 	}
 
 	ret = drm_setup_buffers();
@@ -874,10 +889,12 @@ drm_init(void)
 		err("DRM buffer allocation failed");
 		close(drm_dev.fd);
 		drm_dev.fd = -1;
-		return;
+		return (-1);
 	}
 
 	info("DRM subsystem and buffer mapped successfully");
+
+	return (0);
 }
 
 void

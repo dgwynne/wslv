@@ -39,7 +39,7 @@
 
 #include "lvgl/lvgl.h"
 #include "lvgl/demos/lv_demos.h"
-#include "wslv.h"
+#include "wslv_drm.h"
 
 #ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
@@ -57,7 +57,7 @@ printable(int ch)
 	return (ch);
 }
 
-static void
+void
 hexdump(const void *d, size_t datalen)
 {
 	const uint8_t *data = d;
@@ -119,6 +119,8 @@ struct wslv_pointer {
 	lv_indev_drv_t			 wp_lv_indev_drv;
 	lv_indev_t			*wp_lv_indev;
 
+	struct wsmouse_calibcoords	 wp_ws_calib;
+
 	uint32_t			 wp_x;
 	uint32_t			 wp_y;
 	unsigned int			 wp_pressed;
@@ -132,9 +134,10 @@ TAILQ_HEAD(wslv_pointer_list, wslv_pointer);
 struct wslv_softc {
 	const char			*sc_name;
 
+	int				 sc_ws_drm;
 	int				 sc_ws_fd;
 	unsigned char			*sc_ws_fb;
-	unsigned char			*sc_ws_ofb;
+	unsigned char			*sc_ws_fb2;
 	struct wsdisplay_fbinfo		 sc_ws_vinfo;
 	unsigned int			 sc_ws_linebytes;
 	size_t				 sc_ws_fblen;
@@ -212,8 +215,6 @@ main(int argc, char *argv[])
 	if (wslv_open(sc, devname, &errstr) == -1)
 		err(1, "%s %s", devname, errstr);
 
-	memcpy(sc->sc_ws_ofb, sc->sc_ws_fb, sc->sc_ws_fblen);
-
 #if 0
 	word = (uint32_t *)sc->sc_ws_fb;
 	for (y = 0; y < sc->sc_ws_vinfo.height; y++) {
@@ -241,18 +242,49 @@ main(int argc, char *argv[])
 #endif
 
 	lv_init();
+	if (sc->sc_ws_drm) {
+		lv_coord_t w, h;
+		size_t len;
+
+		if (drm_init() == -1)
+			exit(1);
+
+		drm_get_sizes(&w, &h, NULL);
+		sc->sc_ws_vinfo.width = w;
+		sc->sc_ws_vinfo.height = h;
+		sc->sc_ws_vinfo.depth = LV_COLOR_DEPTH;
+		sc->sc_ws_linebytes = w * (LV_COLOR_SIZE/8);
+
+		len = sc->sc_ws_vinfo.height * sc->sc_ws_linebytes;
+
+		sc->sc_ws_fb = malloc(len);
+		if (sc->sc_ws_fb == NULL)
+			err(1, "drm buffer");
+
+		sc->sc_ws_fb2 = malloc(len);
+		if (sc->sc_ws_fb2 == NULL)
+			err(1, "drm buffer 2");
+
+		sc->sc_ws_fblen = len;
+	}
 	event_init();
 
-	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf, sc->sc_ws_fb, NULL,
-	    sc->sc_ws_fblen);
+	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
+	    sc->sc_ws_fb, sc->sc_ws_fb2, sc->sc_ws_fblen);
 
 	lv_disp_drv_init(&sc->sc_lv_disp_drv);
 	sc->sc_lv_disp_drv.draw_buf = &sc->sc_lv_disp_buf;
 	sc->sc_lv_disp_drv.hor_res = sc->sc_ws_vinfo.width;
 	sc->sc_lv_disp_drv.ver_res = sc->sc_ws_vinfo.height;
-	sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
+	if (sc->sc_ws_drm) {
+		sc->sc_lv_disp_drv.flush_cb = drm_flush;
+		sc->sc_lv_disp_drv.wait_cb = drm_wait_vsync;
+		sc->sc_lv_disp_drv.full_refresh = 1;
+	} else {
+		sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
+		sc->sc_lv_disp_drv.direct_mode = 1;
+	}
 	sc->sc_lv_disp_drv.user_data = sc;
-	sc->sc_lv_disp_drv.direct_mode = 1;
 
 	sc->sc_lv_disp = lv_disp_drv_register(&sc->sc_lv_disp_drv);
 
@@ -271,18 +303,20 @@ main(int argc, char *argv[])
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
 	wslv_tick(0, 0, sc);
 
-//lv_demo_widgets();
-lv_demo_keypad_encoder();
+lv_demo_widgets();
+//lv_demo_keypad_encoder();
+//lv_demo_benchmark();
 
 	event_dispatch();
 
 	sleep(2);
 
-	memcpy(sc->sc_ws_fb, sc->sc_ws_ofb, sc->sc_ws_fblen);
-
 done:
-	if (ioctl(sc->sc_ws_fd, WSDISPLAYIO_SMODE, &sc->sc_ws_omode) == -1)
-		warn("set original mode");
+	if (!sc->sc_ws_drm) {
+		if (ioctl(sc->sc_ws_fd, WSDISPLAYIO_SMODE,
+		    &sc->sc_ws_omode) == -1)
+			warn("set original mode");
+	}
 
 	return (rv);
 err:
@@ -382,20 +416,60 @@ wslv_keypad_event(int fd, short revents, void *arg)
 		wslv_keypad_event_proc(wk, &wsevts[i]);
 }
 
+static const char *wsevt_type_names[] = {
+	[WSCONS_EVENT_MOUSE_DELTA_X]		= "mouse rel x",
+	[WSCONS_EVENT_MOUSE_DELTA_Y]		= "mouse rel x",
+	[WSCONS_EVENT_MOUSE_ABSOLUTE_X]		= "mouse abs x",
+	[WSCONS_EVENT_MOUSE_ABSOLUTE_Y]		= "mouse abs y",
+	[WSCONS_EVENT_MOUSE_UP]			= "mouse up",
+	[WSCONS_EVENT_MOUSE_DOWN]		= "mouse down",
+	[WSCONS_EVENT_SYNC]			= "sync",
+};
+
+static const char *
+wsevt_type_name(u_int type)
+{
+	if (type >= nitems(wsevt_type_names))
+		return (NULL);
+
+	return (wsevt_type_names[type]);
+}
+
 static void
 wslv_pointer_event_proc(struct wslv_pointer *wp,
     const struct wscons_event *wsevt)
 {
+	const struct wsmouse_calibcoords *cc = &wp->wp_ws_calib;
 	struct wslv_pointer_event *pe;
 	lv_disp_t *disp = wp->wp_lv_indev_drv.disp;
 	int v = wsevt->value;
+	int d;
+
+	if (0) {
+		const char *typename;
+
+		typename = wsevt_type_name(wsevt->type);
+		if (typename != NULL) {
+			warnx("%s: evt \"%s\" value %d", __func__,
+			    typename, v);
+		} else {
+			warnx("%s: evt type %u value %d", __func__,
+			    wsevt->type, v);
+		}
+	}
 
 	switch (wsevt->type) {
 	case WSCONS_EVENT_MOUSE_ABSOLUTE_X:
-		wp->wp_x = (v * lv_disp_get_hor_res(disp)) / 32768;
+		v -= cc->minx;
+		v *= lv_disp_get_hor_res(disp);
+		v /= cc->maxx - cc->minx;
+		wp->wp_x = v;
 		break;
 	case WSCONS_EVENT_MOUSE_ABSOLUTE_Y:
-		wp->wp_y = (v * lv_disp_get_ver_res(disp)) / 32768;
+		v -= cc->miny;
+		v *= lv_disp_get_ver_res(disp);
+		v /= cc->maxy - cc->miny;
+		wp->wp_y = v;
 		break;
 	case WSCONS_EVENT_MOUSE_UP:
 		if (v != 0)
@@ -408,24 +482,23 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		wp->wp_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
+		pe = malloc(sizeof(*pe));
+		if (pe == NULL) {
+			warn("%s", __func__);
+			return;
+		}
+
+		pe->pe_x = wp->wp_x;
+		pe->pe_y = wp->wp_y;
+		pe->pe_pressed = wp->wp_pressed;
+
+		TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
 		break;
 	default:
 		printf("%s: type %u value %d\n", __func__,
 		    wsevt->type, wsevt->value);
 		return;
 	}
-
-	pe = malloc(sizeof(*pe));
-	if (pe == NULL) {
-		warn("%s", __func__);
-		return;
-	}
-
-	pe->pe_x = wp->wp_x;
-	pe->pe_y = wp->wp_y;
-	pe->pe_pressed = wp->wp_pressed;
-
-	TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
 }
 
 static void
@@ -528,11 +601,26 @@ wslv_pointer_set(struct wslv_softc *sc)
 {
 	struct wslv_pointer *wp;
 	int fd;
+	u_int type;
 
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry) {
 		fd = open(wp->wp_devname, O_RDWR|O_NONBLOCK);
 		if (fd == -1)
 			err(1, "pointer %s", wp->wp_devname);
+
+		if (ioctl(fd, WSMOUSEIO_GTYPE, &type) == -1)
+			err(1, "get pointer %s type", wp->wp_devname);
+
+		if (type != WSMOUSE_TYPE_TPANEL) {
+			errx(1, "pointer %s is not a touch panel (%u)",
+			    wp->wp_devname, type);
+		}
+
+		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS,
+		    &wp->wp_ws_calib) == -1) {
+			err(1, "get pointer %s calibration coordinates",
+			    wp->wp_devname);
+		}
 
 		wp->wp_wslv = sc;
 		event_set(&wp->wp_ev, fd, EV_READ|EV_PERSIST,
@@ -573,7 +661,7 @@ wslv_ws_rd(int fd, short revents, void *arg)
 static void
 wslv_tick(int nil, short events, void *arg)
 {
-	static const struct timeval rate = { 0, 1000000 / 25 };
+	static const struct timeval rate = { 0, 1000000 / 100 };
 
 	evtimer_add(&sc->sc_tick, &rate);
 
@@ -584,6 +672,7 @@ static int
 wslv_open(struct wslv_softc *sc, const char *devname, const char **errstr)
 {
 	unsigned int mode = WSDISPLAYIO_MODE_MAPPED;
+	u_int gtype;
 	size_t len;
 	int fd;
 
@@ -595,38 +684,43 @@ wslv_open(struct wslv_softc *sc, const char *devname, const char **errstr)
 		return (-1);
 	}
 
+	if (ioctl(fd, WSDISPLAYIO_GTYPE, &gtype) == -1) {
+		*errstr = "get wsdisplay type";
+		goto close;
+	}
+	switch (gtype) {
+	case WSDISPLAY_TYPE_INTELDRM:
+		sc->sc_ws_drm = 1;
+		return (0);
+	}
+
 	if (ioctl(fd, WSDISPLAYIO_GMODE, &sc->sc_ws_omode) == -1) {
 		*errstr = "get wsdisplay mode";
-		return (-1);
+		goto close;
 	}
 
 	if (ioctl(fd, WSDISPLAYIO_SMODE, &mode) == -1) {
 		*errstr = "set wsdisplay mode";
-		return (-1);
+		goto close;
 	}
 
 	if (ioctl(fd, WSDISPLAYIO_GINFO, &sc->sc_ws_vinfo) == -1) {
 		*errstr = "get wsdisplay info";
-		return (-1);
+		goto mode;
 	}
 
-	if (ioctl(fd, WSDISPLAYIO_LINEBYTES, &sc->sc_ws_linebytes) == -1) {
+	if (ioctl(fd, WSDISPLAYIO_LINEBYTES,
+	    &sc->sc_ws_linebytes) == -1) {
 		*errstr = "get wsdisplay line bytes";
-		return (-1);
+		goto mode;
 	}
 
 	len = sc->sc_ws_linebytes * sc->sc_ws_vinfo.height;
-	sc->sc_ws_ofb = malloc(len);
-	if (sc->sc_ws_ofb == NULL) {
-		*errstr = "original fb copy";
-		return (-1);
-	}
-
 	sc->sc_ws_fb = mmap(NULL, len,
 	    PROT_WRITE|PROT_READ, MAP_SHARED, fd, (off_t)0);
 	if (sc->sc_ws_fb == MAP_FAILED) {
 		*errstr = "wsdisplay mmap";
-		goto free;
+		goto mode;
 	}
 
 	sc->sc_ws_fd = fd;
@@ -634,8 +728,6 @@ wslv_open(struct wslv_softc *sc, const char *devname, const char **errstr)
 
 	return (0);
 
-free:
-	free(sc->sc_ws_ofb);
 mode:
 	if (ioctl(fd, WSDISPLAYIO_SMODE, &sc->sc_ws_omode) == -1) {
 		/* what do i do here? */
