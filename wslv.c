@@ -255,17 +255,15 @@ main(int argc, char *argv[])
 		sc->sc_ws_vinfo.depth = LV_COLOR_DEPTH;
 		sc->sc_ws_linebytes = w * (LV_COLOR_SIZE/8);
 
-		len = sc->sc_ws_vinfo.height * sc->sc_ws_linebytes;
-
-		sc->sc_ws_fb = malloc(len);
+		sc->sc_ws_fb = drm_get_fb(0);
 		if (sc->sc_ws_fb == NULL)
 			err(1, "drm buffer");
 
-		sc->sc_ws_fb2 = malloc(len);
+		sc->sc_ws_fb2 = drm_get_fb(1);
 		if (sc->sc_ws_fb2 == NULL)
 			err(1, "drm buffer 2");
 
-		sc->sc_ws_fblen = len;
+		sc->sc_ws_fblen = w * h;
 	}
 	event_init();
 
@@ -279,7 +277,8 @@ main(int argc, char *argv[])
 	if (sc->sc_ws_drm) {
 		sc->sc_lv_disp_drv.flush_cb = drm_flush;
 		sc->sc_lv_disp_drv.wait_cb = drm_wait_vsync;
-		sc->sc_lv_disp_drv.full_refresh = 1;
+		sc->sc_lv_disp_drv.full_refresh = 0;
+		sc->sc_lv_disp_drv.direct_mode = 1;
 	} else {
 		sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
 		sc->sc_lv_disp_drv.direct_mode = 1;
@@ -661,7 +660,7 @@ wslv_ws_rd(int fd, short revents, void *arg)
 static void
 wslv_tick(int nil, short events, void *arg)
 {
-	static const struct timeval rate = { 0, 1000000 / 100 };
+	static const struct timeval rate = { 0, 1000000 / 50 };
 
 	evtimer_add(&sc->sc_tick, &rate);
 
@@ -724,7 +723,7 @@ wslv_open(struct wslv_softc *sc, const char *devname, const char **errstr)
 	}
 
 	sc->sc_ws_fd = fd;
-	sc->sc_ws_fblen = len;
+	sc->sc_ws_fblen = sc->sc_ws_vinfo.width * sc->sc_ws_vinfo.height;
 
 	return (0);
 

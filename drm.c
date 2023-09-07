@@ -97,7 +97,6 @@ struct drm_dev {
 	drmModePropertyPtr crtc_props[128];
 	drmModePropertyPtr conn_props[128];
 	struct drm_buffer drm_bufs[2]; /* DUMB buffers */
-	struct drm_buffer *cur_bufs[2]; /* double buffering handling */
 } drm_dev;
 
 static uint32_t
@@ -765,10 +764,6 @@ drm_setup_buffers(void)
 	if (ret)
 		return (ret);
 
-	/* Set buffering handling */
-	drm_dev.cur_bufs[0] = NULL;
-	drm_dev.cur_bufs[1] = &drm_dev.drm_bufs[0];
-
 	return (0);
 }
 
@@ -814,21 +809,19 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 void
 drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 {
-	struct drm_buffer *fbuf = drm_dev.cur_bufs[1];
+	int bufi = (void *)color_p == drm_dev.drm_bufs[1].map;
+	struct drm_buffer *fbuf = &drm_dev.drm_bufs[bufi];
 	lv_color_int_t *map = fbuf->map;
 	uint32_t w = (area->x2 - area->x1 + 1);
 	uint32_t h = (area->y2 - area->y1 + 1);
 	int x, y;
 
-	dbg("x %d:%d y %d:%d w %d h %d",
+	dbg("bufi %d x %d:%d y %d:%d w %d h %d", bufi,
 	    area->x1, area->x2, area->y1, area->y2, w, h);
 
-	for (y = area->y1; y <= area->y2; y++) {
-		lv_color_int_t *row = map + (drm_dev.width * y);
-		for (x = area->x1; x <= area->x2; x++) {
-			row[x] = color_p->full;
-			color_p++;
-		}
+	if (!lv_disp_flush_is_last(disp_drv)) {
+		lv_disp_flush_ready(disp_drv);
+		return;
 	}
 
 	if (drm_dev.req)
@@ -841,14 +834,13 @@ drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 	} else
 		dbg("Flush done");
 
-	if (!drm_dev.cur_bufs[0])
-		drm_dev.cur_bufs[1] = &drm_dev.drm_bufs[1];
-	else
-		drm_dev.cur_bufs[1] = drm_dev.cur_bufs[0];
-
-	drm_dev.cur_bufs[0] = fbuf;
-
 	lv_disp_flush_ready(disp_drv);
+}
+
+void *
+drm_get_fb(int i)
+{
+	return (drm_dev.drm_bufs[i].map);
 }
 
 #if LV_COLOR_DEPTH == 32

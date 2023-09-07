@@ -24,4 +24,6 @@ void		drm_flush(lv_disp_drv_t *, const lv_area_t *, lv_color_t *);
 void		drm_wait_vsync(lv_disp_drv_t *);
 void		drm_get_sizes(lv_coord_t *, lv_coord_t *, uint32_t *);
 
+void		*drm_get_fb(int);
+
 #endif /* _WSLV_DRM_H_ */
