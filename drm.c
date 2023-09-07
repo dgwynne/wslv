@@ -880,7 +880,8 @@ drm_init(void)
 	info("DRM subsystem and buffer mapped successfully");
 }
 
-void drm_exit(void)
+void
+drm_exit(void)
 {
 	close(drm_dev.fd);
 	drm_dev.fd = -1;
