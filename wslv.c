@@ -148,6 +148,7 @@ struct wslv_softc {
 	lv_disp_draw_buf_t		 sc_lv_disp_buf;
 	lv_disp_drv_t			 sc_lv_disp_drv;
 	lv_disp_t			*sc_lv_disp;
+	lv_obj_t			*sc_lv_cursor;
 
 	struct event			 sc_tick;
 
@@ -292,6 +293,11 @@ main(int argc, char *argv[])
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
 	    sc->sc_name, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height,
 	    sc->sc_ws_vinfo.depth, sc->sc_ws_fb, sc->sc_ws_fblen);
+
+	sc->sc_lv_cursor = lv_img_create(lv_scr_act());
+	if (sc->sc_lv_cursor == NULL)
+		err(1, "pointer cursor");
+	lv_img_set_src(sc->sc_lv_cursor, LV_SYMBOL_CLOSE);
 
 	wslv_keypad_set(sc);
 	wslv_pointer_set(sc);
@@ -471,6 +477,23 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		v /= cc->maxy - cc->miny;
 		wp->wp_y = v;
 		break;
+
+	case WSCONS_EVENT_MOUSE_DELTA_X:
+		v += wp->wp_x;
+		if (v < 0)
+			v = 0;
+		if (v >= lv_disp_get_hor_res(disp))
+			v = lv_disp_get_hor_res(disp) - 1;
+		wp->wp_x = v;
+		break;
+	case WSCONS_EVENT_MOUSE_DELTA_Y:
+		v = wp->wp_y - v;
+		if (v < 0)
+			v = 0;
+		if (v >= lv_disp_get_ver_res(disp))
+			v = lv_disp_get_ver_res(disp) - 1;
+		wp->wp_y = v;
+		break;
 	case WSCONS_EVENT_MOUSE_UP:
 		if (v != 0)
 			return;
@@ -611,15 +634,12 @@ wslv_pointer_set(struct wslv_softc *sc)
 		if (ioctl(fd, WSMOUSEIO_GTYPE, &type) == -1)
 			err(1, "get pointer %s type", wp->wp_devname);
 
-		if (type != WSMOUSE_TYPE_TPANEL) {
-			errx(1, "pointer %s is not a touch panel (%u)",
-			    wp->wp_devname, type);
-		}
-
-		if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS,
-		    &wp->wp_ws_calib) == -1) {
-			err(1, "get pointer %s calibration coordinates",
-			    wp->wp_devname);
+		if (type == WSMOUSE_TYPE_TPANEL) {
+			if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS,
+			    &wp->wp_ws_calib) == -1) {
+				err(1, "get pointer %s calibration coordinates",
+				    wp->wp_devname);
+			}
 		}
 
 		wp->wp_wslv = sc;
@@ -632,6 +652,10 @@ wslv_pointer_set(struct wslv_softc *sc)
 		wp->wp_lv_indev_drv.user_data = wp;
 
 		wp->wp_lv_indev = lv_indev_drv_register(&wp->wp_lv_indev_drv);
+
+		if (type != WSMOUSE_TYPE_TPANEL) {
+			lv_indev_set_cursor(wp->wp_lv_indev, sc->sc_lv_cursor);
+		}
 
 		event_add(&wp->wp_ev, NULL);
 	}
