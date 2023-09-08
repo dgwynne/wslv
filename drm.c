@@ -43,6 +43,7 @@
 #include <errno.h>
 #include <sys/mman.h>
 #include <inttypes.h>
+#include <event.h>
 
 #include <xf86drm.h>
 #include <xf86drmMode.h>
@@ -66,6 +67,8 @@
 #else
 #define dbg(msg, ...)  print(DBG_TAG ": " msg "\n", ##__VA_ARGS__)
 #endif
+
+static void drm_done_vsync(int, short, void *);
 
 struct drm_buffer {
 	uint32_t handle;
@@ -97,6 +100,8 @@ struct drm_dev {
 	drmModePropertyPtr crtc_props[128];
 	drmModePropertyPtr conn_props[128];
 	struct drm_buffer drm_bufs[2]; /* DUMB buffers */
+
+	struct event ev;
 } drm_dev;
 
 static uint32_t
@@ -777,6 +782,11 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 	int ret;
 	struct pollfd pfd;
 
+	if (drm_dev.req == NULL) {
+		lv_disp_flush_ready(drm_dev.ev.ev_arg);
+		return;
+	}
+
 	do {
 		pfd.fd = drm_dev.fd;
 		pfd.events = POLLIN;
@@ -799,6 +809,19 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 
 	drmModeAtomicFree(drm_dev.req);
 	drm_dev.req = NULL;
+}
+
+static void
+drm_done_vsync(int fd, short events, void *arg)
+{
+	lv_disp_drv_t *disp_drv = arg;
+
+	drmHandleEvent(drm_dev.fd, &drm_dev.drm_event_ctx);
+	drmModeAtomicFree(drm_dev.req);
+	drm_dev.req = NULL;
+
+	lv_disp_flush_ready(disp_drv);
+	lv_timer_handler();
 }
 
 void
@@ -829,13 +852,19 @@ drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 	} else
 		dbg("Flush done");
 
-	lv_disp_flush_ready(disp_drv);
+	event_add(&drm_dev.ev, NULL);
 }
 
 void *
 drm_get_fb(int i)
 {
 	return (drm_dev.drm_bufs[i].map);
+}
+
+void
+drm_event_set(lv_disp_drv_t *disp_drv)
+{
+	event_set(&drm_dev.ev, drm_dev.fd, EV_READ, drm_done_vsync, disp_drv);
 }
 
 #if LV_COLOR_DEPTH == 32

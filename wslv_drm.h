@@ -25,5 +25,6 @@ void		drm_wait_vsync(lv_disp_drv_t *);
 void		drm_get_sizes(lv_coord_t *, lv_coord_t *, uint32_t *);
 
 void		*drm_get_fb(int);
+void		 drm_event_set(lv_disp_drv_t *);
 
 #endif /* _WSLV_DRM_H_ */

@@ -279,6 +279,7 @@ main(int argc, char *argv[])
 		sc->sc_lv_disp_drv.wait_cb = drm_wait_vsync;
 		sc->sc_lv_disp_drv.full_refresh = 0;
 		sc->sc_lv_disp_drv.direct_mode = 1;
+		drm_event_set(&sc->sc_lv_disp_drv);
 	} else {
 		sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
 		sc->sc_lv_disp_drv.direct_mode = 1;
@@ -660,7 +661,7 @@ wslv_ws_rd(int fd, short revents, void *arg)
 static void
 wslv_tick(int nil, short events, void *arg)
 {
-	static const struct timeval rate = { 0, 1000000 / 50 };
+	static const struct timeval rate = { 0, 1000000 / 100 };
 
 	evtimer_add(&sc->sc_tick, &rate);
 
