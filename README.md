@@ -28,6 +28,7 @@ Also, I'm an idiot and make up work for myself.
 
 ## To Do
 
+- fix idle handling so input is ignored until idle is off
 - integrate MQTT again
 
 ## Ideas
