@@ -244,32 +244,6 @@ main(int argc, char *argv[])
 	if (TAILQ_EMPTY(&sc->sc_pointer_list))
 		wslv_pointer_add(sc, WS_POINTER);
 
-#if 0
-	word = (uint32_t *)sc->sc_ws_fb;
-	for (y = 0; y < sc->sc_ws_vinfo.height; y++) {
-		for (x = 0; x < sc->sc_ws_vinfo.width; x++) {
-			*word++ = 0x00ff0000;
-		}
-	}
-	sleep(2);
-
-	word = (uint32_t *)sc->sc_ws_fb;
-	for (y = 0; y < sc->sc_ws_vinfo.height; y++) {
-		for (x = 0; x < sc->sc_ws_vinfo.width; x++) {
-			*word++ = 0x0000ff00;
-		}
-	}
-	sleep(2);
-
-	word = (uint32_t *)sc->sc_ws_fb;
-	for (y = 0; y < sc->sc_ws_vinfo.height; y++) {
-		for (x = 0; x < sc->sc_ws_vinfo.width; x++) {
-			*word++ = 0x000000ff;
-		}
-	}
-	sleep(2);
-#endif
-
 	lv_init();
 	if (sc->sc_ws_drm) {
 		lv_coord_t w, h;
