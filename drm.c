@@ -102,6 +102,9 @@ struct drm_dev {
 	struct drm_buffer drm_bufs[2]; /* DUMB buffers */
 
 	struct event ev;
+
+	int dpms;
+	struct drm_buffer *cur_buf;
 } drm_dev;
 
 static uint32_t
@@ -347,6 +350,34 @@ drm_dmabuf_set_plane(struct drm_buffer *buf)
 		drmModeAtomicFree(drm_dev.req);
 		return (ret);
 	}
+
+	return (0);
+}
+
+int
+drm_svideo(int on)
+{
+	int rv;
+	uint32_t prop;
+	int dpms = on ? DRM_MODE_DPMS_ON : DRM_MODE_DPMS_OFF;
+
+	prop = get_conn_property_id("DPMS");
+	if (prop == 0) {
+		errno = EOPNOTSUPP;
+		return (-1);
+	}
+
+	rv = drmModeConnectorSetProperty(drm_dev.fd, drm_dev.conn_id,
+	    prop, dpms);
+	if (rv == -1) {
+		printf("svideo drmModeConnectorSetProperty failed: %s\n",
+		    strerror(errno));
+		return (-1);
+	}
+
+	drm_dev.dpms = dpms;
+	if (on)
+		drm_dmabuf_set_plane(drm_dev.cur_buf);
 
 	return (0);
 }
@@ -687,6 +718,8 @@ drm_setup(unsigned int fourcc)
 	    (fourcc>>0)&0xff, (fourcc>>8)&0xff,
 	    (fourcc>>16)&0xff, (fourcc>>24)&0xff);
 
+	drm_dev.dpms = DRM_MODE_DPMS_ON;
+
 	return (0);
 
 err:
@@ -844,6 +877,12 @@ drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 
 	if (drm_dev.req)
 		drm_wait_vsync(disp_drv);
+
+	drm_dev.cur_buf = fbuf;
+	if (drm_dev.dpms != DRM_MODE_DPMS_ON) {
+		lv_disp_flush_ready(disp_drv);
+		return;
+	}
 
 	/* show fbuf plane */
 	if (drm_dmabuf_set_plane(fbuf)) {
