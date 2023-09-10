@@ -78,6 +78,10 @@ hexdump(const void *d, size_t datalen)
 
 #define DEVNAME "/dev/ttyC0"
 
+#define WSLV_IDLE_TIME_MIN		 4
+#define WSLV_IDLE_TIME_MAX		 3600
+#define WSLV_IDLE_TIME_DEFAULT		 120
+
 struct wslv_softc;
 
 struct wslv_keypad_event {
@@ -152,11 +156,18 @@ struct wslv_softc {
 
 	struct event			 sc_tick;
 
+	struct timeval			 sc_idle_time;
+	struct event			 sc_idle_ev;
+	unsigned int			 sc_idle;
+
 	struct wslv_keypad_list		 sc_keypad_list;
 	struct wslv_pointer_list	 sc_pointer_list;
 };
 
-struct wslv_softc _wslv;
+struct wslv_softc _wslv = {
+	.sc_idle_time		= { WSLV_IDLE_TIME_DEFAULT, 0 },
+	.sc_idle		= 0,
+};
 struct wslv_softc *sc = &_wslv;
 
 static int		wslv_open(struct wslv_softc *, const char *,
@@ -169,6 +180,7 @@ static void		wslv_pointer_set(struct wslv_softc *);
 
 static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
+static void		wslv_idle(int, short, void *);
 
 static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
 			    lv_color_t *);
@@ -196,8 +208,14 @@ main(int argc, char *argv[])
 	TAILQ_INIT(&sc->sc_keypad_list);
 	TAILQ_INIT(&sc->sc_pointer_list);
 
-	while ((ch = getopt(argc, argv, "46d:h:K:M:p:W:")) != -1) {
+	while ((ch = getopt(argc, argv, "46d:h:i:K:M:p:W:")) != -1) {
 		switch (ch) {
+		case 'i':
+			sc->sc_idle_time.tv_sec = strtonum(optarg,
+			    WSLV_IDLE_TIME_MIN, WSLV_IDLE_TIME_MAX, &errstr);
+			if (errstr != NULL)
+				errx(1, "idle time: %s", errstr);
+			break;
 		case 'K':
 			wslv_keypad_add(sc, optarg);
 			break;
@@ -308,6 +326,9 @@ main(int argc, char *argv[])
 
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
 	wslv_tick(0, 0, sc);
+
+	evtimer_set(&sc->sc_idle_ev, wslv_idle, sc);
+	evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
 
 lv_demo_widgets();
 //lv_demo_keypad_encoder();
@@ -505,6 +526,16 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		wp->wp_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
+		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+
+		if (sc->sc_idle) {
+			if (wp->wp_pressed == 0) {
+				drm_svideo(1);
+				sc->sc_idle = 0;
+			}
+			return;
+		}
+
 		pe = malloc(sizeof(*pe));
 		if (pe == NULL) {
 			warn("%s", __func__);
@@ -690,6 +721,16 @@ wslv_tick(int nil, short events, void *arg)
 	evtimer_add(&sc->sc_tick, &rate);
 
 	lv_timer_handler();
+}
+
+static void
+wslv_idle(int nil, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+
+	sc->sc_idle = 1;
+	warnx("idle");
+	drm_svideo(0);
 }
 
 static int
