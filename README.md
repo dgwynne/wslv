@@ -22,6 +22,9 @@ Also, I'm an idiot and make up work for myself.
 ## To Do
 
 - integrate MQTT again
+
+## Ideas
+
 - integrate [LVGL + Berry](https://github.com/lvgl/lv_binding_berry)
 
 The goal would be to allow reuse of Berry code between Tasmota and
