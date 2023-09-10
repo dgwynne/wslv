@@ -49,7 +49,6 @@ can use them as a non-privileged user.
 
 ## To Do
 
-- fix idle handling so input is ignored until idle is off
 - integrate MQTT again
 
 ## Ideas

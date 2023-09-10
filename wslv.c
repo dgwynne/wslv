@@ -184,6 +184,7 @@ static void		wslv_pointer_set(struct wslv_softc *);
 static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
 static void		wslv_idle(int, short, void *);
+static void		wslv_wake(struct wslv_softc *);
 
 static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
 			    lv_color_t *);
@@ -515,10 +516,13 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
 
 		if (sc->sc_idle) {
-			if (wp->wp_pressed == 0) {
-				wslv_svideo(sc, 1);
-				sc->sc_idle = 0;
-			}
+			/* wake the display up as soon as anything happens */
+			wslv_svideo(sc, 1);
+
+			/* only wake up input after the touch is released */
+			if (wp->wp_pressed == 0)
+				wslv_wake(sc);
+
 			return;
 		}
 
@@ -608,6 +612,17 @@ wslv_pointer_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 	free(pe);
 
 	data->continue_reading = !TAILQ_EMPTY(&wp->wp_events);
+}
+
+static void
+wslv_pointer_idle(lv_indev_drv_t *drv, lv_indev_data_t *data)
+{
+	struct wslv_pointer *wp = drv->user_data;
+
+	data->point.x = wp->wp_x;
+	data->point.y = wp->wp_y;
+	data->state = LV_INDEV_STATE_RELEASED;
+	data->continue_reading = 0;
 }
 
 static void
@@ -713,10 +728,27 @@ static void
 wslv_idle(int nil, short events, void *arg)
 {
 	struct wslv_softc *sc = arg;
+	struct wslv_pointer *wp;
+
+	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
+		wp->wp_lv_indev_drv.read_cb = wslv_pointer_idle;
 
 	sc->sc_idle = 1;
 	warnx("idle");
 	wslv_svideo(sc, 0);
+}
+
+static void
+wslv_wake(struct wslv_softc *sc)
+{
+	struct wslv_pointer *wp;
+
+	warnx("wake");
+	/* the display has already been woken up */
+
+	sc->sc_idle = 0;
+	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
+		wp->wp_lv_indev_drv.read_cb = wslv_pointer_read;
 }
 
 static int
