@@ -148,11 +148,13 @@ struct wslv_softc {
 	struct event			 sc_ws_ev;
 
 	unsigned int			 sc_ws_omode;
+	int (*sc_ws_svideo)(struct wslv_softc *, int);
 
 	lv_disp_draw_buf_t		 sc_lv_disp_buf;
 	lv_disp_drv_t			 sc_lv_disp_drv;
 	lv_disp_t			*sc_lv_disp;
 	lv_obj_t			*sc_lv_cursor;
+
 
 	struct event			 sc_tick;
 
@@ -184,6 +186,10 @@ static void		wslv_idle(int, short, void *);
 
 static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
 			    lv_color_t *);
+
+static int		wslv_svideo(struct wslv_softc *, int);
+static int		wslv_wsfb_svideo(struct wslv_softc *, int);
+static int		wslv_drm_svideo(struct wslv_softc *, int);
 
 static void __dead
 usage(void)
@@ -283,7 +289,9 @@ main(int argc, char *argv[])
 			err(1, "drm buffer 2");
 
 		sc->sc_ws_fblen = w * h;
-	}
+		sc->sc_ws_svideo = wslv_drm_svideo;
+	} else
+		sc->sc_ws_svideo = wslv_wsfb_svideo;
 	event_init();
 
 	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
@@ -530,7 +538,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 
 		if (sc->sc_idle) {
 			if (wp->wp_pressed == 0) {
-				drm_svideo(1);
+				wslv_svideo(sc, 1);
 				sc->sc_idle = 0;
 			}
 			return;
@@ -730,7 +738,7 @@ wslv_idle(int nil, short events, void *arg)
 
 	sc->sc_idle = 1;
 	warnx("idle");
-	drm_svideo(0);
+	wslv_svideo(sc, 0);
 }
 
 static int
@@ -801,6 +809,29 @@ close:
 	close(fd);
 
 	return (-1);
+}
+
+static int
+wslv_svideo(struct wslv_softc *sc, int on)
+{
+	return ((*sc->sc_ws_svideo)(sc, on));
+}
+
+static int
+wslv_drm_svideo(struct wslv_softc *sc, int on)
+{
+	return (drm_svideo(on));
+}
+
+static int
+wslv_wsfb_svideo(struct wslv_softc *sc, int on)
+{
+	u_int svideo = on ? WSDISPLAYIO_VIDEO_ON : WSDISPLAYIO_VIDEO_OFF;
+
+	if (ioctl(sc->sc_ws_fd, WSDISPLAYIO_SVIDEO, &svideo) == -1)
+		warn("set video %s %s", sc->sc_name, on ? "on" : "off");
+
+	return (0);
 }
 
 static void
