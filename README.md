@@ -26,6 +26,21 @@ a full browser environment.
 
 Also, I'm an idiot and make up work for myself.
 
+## How?
+
+- Install OpenBSD on supported hardware
+
+Anything that provides a framebuffer and a mouse/touchscreen should
+be Good Enough(tm).
+
+- Get the source code
+
+`git clone` and an update of the submodules is probably the easiest way
+
+- Run `make obj` and then `make`
+
+- Run `./obj/wslv`
+
 ## To Do
 
 - fix idle handling so input is ignored until idle is off
