@@ -20,7 +20,9 @@ it to interact with other hardware or visa versa.
 While it is possible to run a desktop environment and browser in
 kios mode to provide a user interface, integrating with the devices
 directly allows for precise (and remote) control of functionality
-like suspending and resuming the display.
+like suspending and resuming the display. It should also be portable
+to resource constrained systems that would not be able to support
+a full browser environment.
 
 Also, I'm an idiot and make up work for myself.
 
