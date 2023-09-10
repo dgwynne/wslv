@@ -39,7 +39,13 @@ be Good Enough(tm).
 
 - Run `make obj` and then `make`
 
-- Run `./obj/wslv`
+- Run `./obj/wslv` on the console.
+
+`wslv` needs permission to open the display and input devices. By
+default it tries to open /dev/ttyC0 or /dev/dri/card0 for the
+display, and /dev/wsmouse0 for a pointer. When you log in on the
+console the system changes the ownership of these devices so you
+can use them as a non-privileged user.
 
 ## To Do
 
