@@ -76,7 +76,8 @@ hexdump(const void *d, size_t datalen)
 	}
 }
 
-#define DEVNAME "/dev/ttyC0"
+#define WS_DISPLAY			"/dev/ttyC0"
+#define WS_POINTER			"/dev/wsmouse0"
 
 #define WSLV_IDLE_TIME_MIN		 4
 #define WSLV_IDLE_TIME_MAX		 3600
@@ -204,7 +205,7 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
-	const char *devname = DEVNAME;
+	const char *devname = WS_DISPLAY;
 	const char *errstr;
 	int rv = 0;
 	size_t x, y;
@@ -239,6 +240,9 @@ main(int argc, char *argv[])
 
 	if (wslv_open(sc, devname, &errstr) == -1)
 		err(1, "%s %s", devname, errstr);
+
+	if (TAILQ_EMPTY(&sc->sc_pointer_list))
+		wslv_pointer_add(sc, WS_POINTER);
 
 #if 0
 	word = (uint32_t *)sc->sc_ws_fb;
