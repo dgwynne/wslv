@@ -17,6 +17,11 @@ would also work.
 While LVGL and wscons provide the user interface, MQTT will allow
 it to interact with other hardware or visa versa.
 
+While it is possible to run a desktop environment and browser in
+kios mode to provide a user interface, integrating with the devices
+directly allows for precise (and remote) control of functionality
+like suspending and resuming the display.
+
 Also, I'm an idiot and make up work for myself.
 
 ## To Do
