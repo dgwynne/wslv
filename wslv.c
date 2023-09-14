@@ -40,6 +40,7 @@
 #include "lvgl/lvgl.h"
 #include "lvgl/demos/lv_demos.h"
 #include "wslv_drm.h"
+#include "wslv_luavgl.h"
 
 #ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
@@ -198,7 +199,7 @@ usage(void)
 {
 	extern char *__progname;
 
-	fprintf(stderr, "usage: %s [-46] [-W wsdiplay]\n", __progname);
+	fprintf(stderr, "usage: %s [-46] [-W wsdiplay] -l lua\n", __progname);
 
 	exit(0);
 }
@@ -207,6 +208,7 @@ int
 main(int argc, char *argv[])
 {
 	const char *devname = WS_DISPLAY;
+	const char *lfile = NULL;
 	const char *errstr;
 	int rv = 0;
 	size_t x, y;
@@ -216,7 +218,7 @@ main(int argc, char *argv[])
 	TAILQ_INIT(&sc->sc_keypad_list);
 	TAILQ_INIT(&sc->sc_pointer_list);
 
-	while ((ch = getopt(argc, argv, "46d:h:i:K:M:p:W:")) != -1) {
+	while ((ch = getopt(argc, argv, "46d:h:i:K:l:M:p:W:")) != -1) {
 		switch (ch) {
 		case 'i':
 			sc->sc_idle_time.tv_sec = strtonum(optarg,
@@ -226,6 +228,9 @@ main(int argc, char *argv[])
 			break;
 		case 'K':
 			wslv_keypad_add(sc, optarg);
+			break;
+		case 'l':
+			lfile = optarg;
 			break;
 		case 'M':
 			wslv_pointer_add(sc, optarg);
@@ -238,6 +243,9 @@ main(int argc, char *argv[])
 			/* NOTREACHED */
 		}
 	}
+
+	if (lfile == NULL)
+		usage();
 
 	if (wslv_open(sc, devname, &errstr) == -1)
 		err(1, "%s %s", devname, errstr);
@@ -302,7 +310,8 @@ main(int argc, char *argv[])
 	sc->sc_lv_cursor = lv_img_create(lv_scr_act());
 	if (sc->sc_lv_cursor == NULL)
 		err(1, "pointer cursor");
-	lv_img_set_src(sc->sc_lv_cursor, LV_SYMBOL_CLOSE);
+	LV_IMG_DECLARE(mouse_cursor_icon);
+	lv_img_set_src(sc->sc_lv_cursor, &mouse_cursor_icon);
 
 	wslv_keypad_set(sc);
 	wslv_pointer_set(sc);
@@ -317,7 +326,8 @@ main(int argc, char *argv[])
 	evtimer_set(&sc->sc_idle_ev, wslv_idle, sc);
 	evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
 
-lv_demo_widgets();
+	wsluav(lv_scr_act(), lfile);
+//lv_demo_widgets();
 //lv_demo_keypad_encoder();
 //lv_demo_benchmark();
 

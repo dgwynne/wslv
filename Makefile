@@ -121,6 +121,46 @@ OBJS+=${LVGL_DEMO_SRCS:T:.c=.o}
 
 .endif
 
+# lua
+
+LUAPKG=lua54
+LUA_CFLAGS!=pkg-config --cflags ${LUAPKG}
+LUA_LDFLAGS!=pkg-config --libs ${LUAPKG}
+
+# luavgl
+
+LUAVGL_DIR=${.CURDIR}/luavgl
+LUAVGL_SRCDIR=${LUAVGL_DIR}/src
+
+LUAVGL_SRCS = luavgl.c
+
+.for S in ${LUAVGL_SRCS}
+${S:T:.c=.o}: ${LUAVGL_SRCDIR}/${S}
+	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -I${LUAVGL_SRCDIR} -o ${.TARGET} ${.IMPSRC}
+.endfor
+
+OBJS+=${LUAVGL_SRCS:T:.c=.o}
+
+# wslv and luavgl glue
+
+WSLUAV_SRCS=wsluav.c
+
+${WSLUAV_SRCS:.c=.o}: ${WSLUAV_SRCS}
+	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -I${LUAVGL_SRCDIR} -o ${.TARGET} ${.IMPSRC}
+
+OBJS+=${WSLUAV_SRCS:.c=.o}
+
+# steal the mouse cursor
+
+CURSOR_SRCS=${LUAVGL_DIR}/simulator/mouse_cursor_icon.c
+
+.for S in ${CURSOR_SRCS}
+${S:T:.c=.o}: ${S}
+	${LVCOMPILE} -I${LVGL_SRC_DIR} -o ${.TARGET} ${.IMPSRC}
+.endfor
+
+OBJS+=${CURSOR_SRCS:T:.c=.o}
+
 # drm
 
 X11DIR=/usr/X11R6
@@ -141,7 +181,7 @@ PROG=wslv
 SRCS=wslv.c
 MAN=
 
-LDADD+=-levent -L${X11DIR}/lib -ldrm
+LDADD+=-levent -L${X11DIR}/lib -ldrm ${LUA_LDFLAGS}
 DPADD+=${LIBEVENT}
 
 DEBUG=-g
