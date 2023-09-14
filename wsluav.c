@@ -24,17 +24,14 @@
 
 #include <stdlib.h>
 #include <unistd.h>
-#include "demos/lv_demos.h"
-#include "examples/lv_examples.h"
-#include <lvgl.h>
 
+#include <lvgl.h>
 #include <lua.h>
 
 #include <lauxlib.h>
 #include <lualib.h>
 
 #include <luavgl.h>
-#include "widgets/widgets.h"
 
 typedef struct {
 	lua_State *L;
@@ -45,6 +42,7 @@ typedef struct {
 	lv_obj_t *root;
 	make_font_cb make_font;
 	delete_font_cb delete_font;
+	const char *script;
 } luavgl_args_t;
 
 /*
@@ -179,7 +177,6 @@ pmain(lua_State *L)
 
 	luaL_requiref(L, "lvgl", luaopen_lvgl, 1);
 	lua_pop(L, 1);
-	luavgl_widgets_init(L);
 
 	lua_pushcfunction(L, msghandler); /* push message handler */
 	int base = lua_gettop(L);
@@ -200,9 +197,11 @@ pmain(lua_State *L)
 }
 
 lua_context_t *
-lua_load_script(const char *script, luavgl_args_t *args)
+lua_load_script(luavgl_args_t *args)
 {
+	const char *script = args->script;
 	int ret, status;
+
 	/* create the thread to run script. */
 	if (script == NULL) {
 		printf("args error.\n");
@@ -267,21 +266,18 @@ reload_cb(lv_event_t *e)
 		lua_terminate(lua_ctx);
 	}
 
-	lua_ctx = lua_load_script(LUAVGL_EXAMPLE_DIR "/examples.lua", &args);
+	lua_ctx = lua_load_script(&args);
 }
 
-int
-main(int argc, char **argv)
+void
+wsluav(lv_obj_t *lvroot, const char *script)
 {
-	(void)argc; /*Unused*/
-	(void)argv; /*Unused*/
+	args.root = lvroot;
+	args.script = script;
 
-	/*Initialize LVGL*/
-	lv_init();
+	lv_obj_set_style_bg_color(lvroot, lv_color_black(), 0);
 
-	args.root = lv_scr_act();
-
-	lua_ctx = lua_load_script(LUAVGL_EXAMPLE_DIR "/examples.lua", &args);
+	lua_ctx = lua_load_script(&args);
 
 	lv_obj_t *btn = lv_btn_create(lv_layer_sys());
 	lv_obj_align(btn, LV_ALIGN_BOTTOM_RIGHT, 0, -50);
@@ -291,13 +287,4 @@ main(int argc, char **argv)
 	lv_obj_t* label = lv_label_create(btn);
 	lv_label_set_text(label, "RELOAD");
 	lv_obj_center(label);
-
-	while (1) {
-		/* Periodically call the lv_task handler.
-		 * It could be done in a timer interrupt or an OS task too.*/
-		lv_timer_handler();
-		usleep(5 * 1000);
-	}
-
-	return 0;
 }
