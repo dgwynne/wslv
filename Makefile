@@ -1,3 +1,6 @@
+X11DIR=/usr/X11R6
+LDADD+=-L${X11DIR}/lib
+
 LVGL_CONF_PATH=${.CURDIR}/lv_conf.h
 LVGL_DIR=${.CURDIR}/lvgl
 LVGL_SRC_DIR=${LVGL_DIR}/src
@@ -109,6 +112,19 @@ ${S:T:.c=.o}: ${LVGL_SRC_DIR}/extra/${S}
 
 OBJS+=${LVGL_SRCS:T:.c=.o} ${LVGL_EXTRA_SRCS:T:.c=.o}
 
+# freetype
+
+LVGL_FT_SRCS = extra/libs/freetype/lv_freetype.c
+
+OBJS+=${LVGL_FT_SRCS:T:.c=.o}
+
+.for S in ${LVGL_FT_SRCS}
+${S:T:.c=.o}: ${LVGL_SRC_DIR}/${S}
+	${LVCOMPILE} -I${X11DIR}/include/freetype2 -o ${.TARGET} ${.IMPSRC}
+.endfor
+
+LDADD+=-lfreetype
+
 .if 1
 LVGL_DEMO_SRCS !!= find ${LVGL_DIR}/demos -name "*.c"
 
@@ -163,8 +179,6 @@ OBJS+=${CURSOR_SRCS:T:.c=.o}
 
 # drm
 
-X11DIR=/usr/X11R6
-
 DRM_SRCS=drm.c
 DRM_CFLAGS=-I${X11DIR}/include -I${X11DIR}/include/libdrm
 
@@ -174,6 +188,8 @@ OBJS+=${DRM_SRCS:T:.c=.o}
 ${S:T:.c=.o}: ${S}
 	${COMPILE.c} ${DRM_CFLAGS} -o ${.TARGET} ${.IMPSRC}
 .endfor
+
+LDADD+=-ldrm
 
 # amqtt
 
@@ -194,7 +210,7 @@ PROG=wslv
 SRCS=wslv.c
 MAN=
 
-LDADD+=-levent -L${X11DIR}/lib -ldrm ${LUA_LDFLAGS}
+LDADD+=-levent ${LUA_LDFLAGS}
 DPADD+=${LIBEVENT}
 
 DEBUG=-g
