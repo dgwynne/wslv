@@ -1130,8 +1130,6 @@ wslv_mqtt_connect(struct wslv_softc *sc)
 	};
 	struct mqtt_conn *mc = sc->sc_mqtt_conn;
 
-//warnx("%s", __func__);
-
 	event_set(&sc->sc_mqtt_ev_rd, sc->sc_mqtt_fd, EV_READ|EV_PERSIST,
 	    wslv_mqtt_rd, sc);
 	event_set(&sc->sc_mqtt_ev_wr, sc->sc_mqtt_fd, EV_WRITE,
@@ -1155,7 +1153,6 @@ wslv_mqtt_rd(int fd, short events, void *arg)
 	ssize_t rv;
 
 	rv = read(fd, buf, sizeof(buf));
-//warnx("%s %zd", __func__, rv);
 	switch (rv) {
 	case -1:
 		switch (errno) {
@@ -1176,7 +1173,6 @@ wslv_mqtt_rd(int fd, short events, void *arg)
 		break;
 	}
 
-//	hexdump(buf, rv);
 	mqtt_input(mc, buf, rv);
 }
 
@@ -1204,10 +1200,7 @@ wslv_mqtt_output(struct mqtt_conn *mc, const void *buf, size_t len)
 	int fd = EVENT_FD(&sc->sc_mqtt_ev_wr);
 	ssize_t rv;
 
-//	hexdump(buf, len);
-
 	rv = write(fd, buf, len);
-//warnx("%s %zd/%zu", __func__, rv, len);
 	if (rv == -1) {
 		switch (errno) {
 		case EAGAIN:
@@ -1254,8 +1247,6 @@ wslv_mqtt_on_connect(struct mqtt_conn *mc)
 	char filter[128];
 	int rv;
 
-	warnx("%s", __func__);
-
 	rv = snprintf(filter, sizeof(filter), "%s/%s/#",
 	    prefix_cmnd, sc->sc_mqtt_device);
 	if (rv == -1 || (size_t)rv >= sizeof(filter))
@@ -1271,8 +1262,6 @@ wslv_mqtt_on_suback(struct mqtt_conn *mc, void *cookie,
 {
 	struct wslv_softc *sc = mqtt_cookie(mc);
 	static const char online[] = "Online";
-
-	warnx("Subscribed!");
 
 	if (mqtt_publish(mc,
 	    sc->sc_mqtt_will_topic, sc->sc_mqtt_will_topic_len,
@@ -1320,7 +1309,6 @@ wslv_mqtt_on_message(struct mqtt_conn *mc,
 	const char *sep;
 	const struct wslv_mqtt_cmnd *cmnd;
 
-	warnx("topic %s payload %s", topic, payload);
 	if (payload == NULL || *payload == '\0')
 		goto drop;
 
@@ -1347,8 +1335,6 @@ wslv_mqtt_on_message(struct mqtt_conn *mc,
 	if (sep != NULL)
 		cmnd_len = sep - name;
 
-	warnx("command %.*s (%s)", (int)cmnd_len, name, name);
-
 	cmnd = wslv_mqtt_cmnd(name, cmnd_len);
 	if (cmnd != NULL)
 		(*cmnd->handler)(sc, name, payload, payload_len);
@@ -1368,8 +1354,6 @@ wslv_mqtt_tele(struct wslv_softc *sc)
 	char payload[128];
 	size_t topic_len, payload_len;
 	int rv;
-
-	warnx("%s", __func__);
 
 	rv = snprintf(topic, sizeof(topic), "tele/%s/STATUS",
 	    sc->sc_mqtt_device);
