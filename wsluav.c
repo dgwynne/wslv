@@ -24,6 +24,7 @@
 
 #include <stdlib.h>
 #include <unistd.h>
+#include <err.h>
 
 #include <lvgl.h>
 #include <lua.h>
@@ -32,6 +33,9 @@
 #include <lualib.h>
 
 #include <luavgl.h>
+#include "wslv_luavgl.h"
+
+static int		luaopen_wslv(lua_State *);
 
 typedef struct {
 	lua_State *L;
@@ -175,6 +179,9 @@ pmain(lua_State *L)
 
 	lua_atpanic(L, &lua_panic);
 
+	luaL_requiref(L, "wslv", luaopen_wslv, 1);
+	lua_pop(L, 1);
+
 	luaL_requiref(L, "lvgl", luaopen_lvgl, 1);
 	lua_pop(L, 1);
 
@@ -182,6 +189,7 @@ pmain(lua_State *L)
 	int base = lua_gettop(L);
 	status = luaL_loadfile(L, script);
 	if (status != LUA_OK) {
+		printf("%s\n", lua_tostring(L, 1));
 		lua_pushfstring(L, "failed to load: %s\n", script);
 		/* manually show the error to screen. */
 		lua_insert(L, 1);
@@ -258,6 +266,8 @@ lua_terminate(lua_context_t *luactx)
 static lua_context_t *lua_ctx;
 static luavgl_args_t args;
 
+static struct wslv_softc *wslv;
+
 static void
 reload_cb(lv_event_t *e)
 {
@@ -270,10 +280,12 @@ reload_cb(lv_event_t *e)
 }
 
 void
-wsluav(lv_obj_t *lvroot, const char *script)
+wsluav(struct wslv_softc *sc, lv_obj_t *lvroot, const char *script)
 {
 	args.root = lvroot;
 	args.script = script;
+
+	wslv = sc;
 
 	lv_obj_set_style_bg_color(lvroot, lv_color_black(), 0);
 
@@ -287,4 +299,70 @@ wsluav(lv_obj_t *lvroot, const char *script)
 	lv_obj_t* label = lv_label_create(btn);
 	lv_label_set_text(label, "RELOAD");
 	lv_obj_center(label);
+}
+
+static int _wslv_in_cmnd;
+
+void
+wsluav_cmnd(struct wslv_softc *sc, const char *topic, size_t topic_len,
+    const char *payload, size_t payload_len)
+{
+	lua_State *L;
+	int rv;
+
+	if (lua_ctx == NULL)
+		return;
+
+	L = lua_ctx->L;
+
+	lua_getglobal(L, "cmnd");
+	if (!lua_isfunction(L, -1))
+		return;
+
+	lua_pushlstring(L, topic, topic_len);
+	lua_pushlstring(L, payload, payload_len);
+
+	_wslv_in_cmnd = 1;
+	rv = lua_pcall(L, 2, 0, 0);
+	_wslv_in_cmnd = 0;
+
+	if (rv != 0)
+		warnx("lua pcall cmnd %s", lua_tostring(L, -1));
+
+	lua_pop(L, lua_gettop(L));
+}
+
+static int
+wsluav_in_cmnd(lua_State *L)
+{
+	lua_pushboolean(L, _wslv_in_cmnd);
+	return (1);
+}
+
+static int
+wsluav_tele(lua_State *L)
+{
+	const char *topic;
+	const char *payload;
+	size_t topic_len, payload_len;
+
+	topic = luaL_checklstring(L, 1, &topic_len);
+	payload = luaL_checklstring(L, 2, &payload_len);
+
+	wslv_tele(wslv, topic, topic_len, payload, payload_len);
+
+	return (0);
+}
+
+static const struct luaL_Reg wslv_funcs[] = {
+	{ "tele",	wsluav_tele },
+	{ "in_cmnd",	wsluav_in_cmnd },
+	{ NULL,		NULL }
+};
+
+static int
+luaopen_wslv(lua_State *L)
+{
+	luaL_newlib(L, wslv_funcs);
+	return (1);
 }

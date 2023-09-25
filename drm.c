@@ -105,6 +105,11 @@ struct drm_dev {
 
 	int dpms;
 	struct drm_buffer *cur_buf;
+
+	unsigned long stat_done_vsync;
+	unsigned long stat_wait_vsync;
+
+	struct event stat_ev;
 } drm_dev;
 
 static uint32_t
@@ -842,6 +847,8 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 
 	drmModeAtomicFree(drm_dev.req);
 	drm_dev.req = NULL;
+
+	drm_dev.stat_wait_vsync++;
 }
 
 static void
@@ -854,7 +861,16 @@ drm_done_vsync(int fd, short events, void *arg)
 	drm_dev.req = NULL;
 
 	lv_disp_flush_ready(disp_drv);
-	lv_timer_handler();
+
+	lv_refr_now(NULL);
+	drm_dev.stat_done_vsync++;
+}
+
+void
+drm_refresh(void)
+{
+	if (drm_dev.req == NULL)
+		lv_refr_now(NULL);
 }
 
 void
@@ -900,10 +916,29 @@ drm_get_fb(int i)
 	return (drm_dev.drm_bufs[i].map);
 }
 
+static const struct timeval drm_stat_ival = { 1, 0 };
+
+static void
+drm_stats(int nil, short revents, void *null)
+{
+	evtimer_add(&drm_dev.stat_ev, &drm_stat_ival);
+
+	printf("wait %lu, done %lu\n",
+	    drm_dev.stat_wait_vsync, drm_dev.stat_done_vsync);
+	drm_dev.stat_wait_vsync = 0;
+	drm_dev.stat_done_vsync = 0;
+}
+
 void
 drm_event_set(lv_disp_drv_t *disp_drv)
 {
 	event_set(&drm_dev.ev, drm_dev.fd, EV_READ, drm_done_vsync, disp_drv);
+	evtimer_set(&drm_dev.stat_ev, drm_stats, NULL);
+	//evtimer_add(&drm_dev.stat_ev, &drm_stat_ival);
+
+	printf("clock %u htotal %u vtotal %u vrefresh %u\n",
+	    drm_dev.mode.clock, drm_dev.mode.htotal,
+	    drm_dev.mode.vtotal, drm_dev.mode.vrefresh);
 }
 
 #if LV_COLOR_DEPTH == 32

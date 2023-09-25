@@ -42,9 +42,16 @@
 #include "wslv_drm.h"
 #include "wslv_luavgl.h"
 
+#include "amqtt/amqtt.h"
+
 #ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 #endif
+
+#define WSLV_REFR_PERIOD 40
+
+uint32_t wslv_disp_refr_period = WSLV_REFR_PERIOD;
+uint32_t wslv_indev_refr_period = WSLV_REFR_PERIOD;
 
 #include <ctype.h>
 static int
@@ -166,11 +173,37 @@ struct wslv_softc {
 
 	struct wslv_keypad_list		 sc_keypad_list;
 	struct wslv_pointer_list	 sc_pointer_list;
+
+	int				 sc_mqtt_family;
+	const char			*sc_mqtt_host;
+	const char			*sc_mqtt_serv;
+	const char			*sc_mqtt_device;
+	const char			*sc_mqtt_user;
+	const char			*sc_mqtt_pass;
+
+	const char			*sc_mqtt_will_topic;
+	size_t				 sc_mqtt_will_topic_len;
+	struct mqtt_conn		*sc_mqtt_conn;
+
+	struct addrinfo			*sc_mqtt_res0;
+	int				 sc_mqtt_fd;
+	struct event			 sc_mqtt_ev_rd;
+	struct event			 sc_mqtt_ev_wr;
+	struct event			 sc_mqtt_ev_to;
+
+	struct event			 sc_mqtt_tele_period;
 };
 
 struct wslv_softc _wslv = {
 	.sc_idle_time		= { WSLV_IDLE_TIME_DEFAULT, 0 },
 	.sc_idle		= 0,
+
+	.sc_mqtt_family		= AF_UNSPEC,
+	.sc_mqtt_host		= NULL,
+	.sc_mqtt_serv		= "1883",
+	.sc_mqtt_device		= NULL,
+	.sc_mqtt_user		= NULL,
+	.sc_mqtt_pass		= NULL,
 };
 struct wslv_softc *sc = &_wslv;
 
@@ -193,6 +226,13 @@ static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
 static int		wslv_svideo(struct wslv_softc *, int);
 static int		wslv_wsfb_svideo(struct wslv_softc *, int);
 static int		wslv_drm_svideo(struct wslv_softc *, int);
+static void		wslv_refresh(struct wslv_softc *);
+
+static void		wslv_mqtt_init(struct wslv_softc *);
+static void		wslv_mqtt_connect(struct wslv_softc *);
+
+static void		wslv_mqtt_tele(struct wslv_softc *);
+static void		wslv_mqtt_tele_period(int, short, void *);
 
 static void __dead
 usage(void)
@@ -220,6 +260,18 @@ main(int argc, char *argv[])
 
 	while ((ch = getopt(argc, argv, "46d:h:i:K:l:M:p:W:")) != -1) {
 		switch (ch) {
+		case '4':
+			sc->sc_mqtt_family = AF_INET;
+			break;
+		case '6':
+			sc->sc_mqtt_family = AF_INET6;
+			break;
+		case 'd':
+			sc->sc_mqtt_device = optarg;
+			break;
+		case 'h':
+			sc->sc_mqtt_host = optarg;
+			break;
 		case 'i':
 			sc->sc_idle_time.tv_sec = strtonum(optarg,
 			    WSLV_IDLE_TIME_MIN, WSLV_IDLE_TIME_MAX, &errstr);
@@ -235,6 +287,9 @@ main(int argc, char *argv[])
 		case 'M':
 			wslv_pointer_add(sc, optarg);
 			break;
+		case 'p':
+			sc->sc_mqtt_serv = optarg;
+			break;
 		case 'W':
 			devname = optarg;
 			break;
@@ -244,14 +299,28 @@ main(int argc, char *argv[])
 		}
 	}
 
-	if (lfile == NULL)
+	if (lfile == NULL) {
+		warnx("lua script not specified");
 		usage();
+	}
+
+	if (sc->sc_mqtt_host == NULL) {
+		warnx("mqtt host unspecified");
+		usage();
+	}
+
+	if (sc->sc_mqtt_device == NULL) {
+		warnx("mqtt device name unspecified");
+		usage();
+	}
 
 	if (wslv_open(sc, devname, &errstr) == -1)
 		err(1, "%s %s", devname, errstr);
 
 	if (TAILQ_EMPTY(&sc->sc_pointer_list))
 		wslv_pointer_add(sc, WS_POINTER);
+
+	wslv_mqtt_init(sc);
 
 	lv_init();
 	if (sc->sc_ws_drm) {
@@ -301,6 +370,10 @@ main(int argc, char *argv[])
 	sc->sc_lv_disp_drv.user_data = sc;
 
 	sc->sc_lv_disp = lv_disp_drv_register(&sc->sc_lv_disp_drv);
+	if (0 && sc->sc_ws_drm) {
+		lv_timer_del(sc->sc_lv_disp->refr_timer);
+		sc->sc_lv_disp->refr_timer = NULL;
+	}
 
 	fprintf(stderr,
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
@@ -316,6 +389,8 @@ main(int argc, char *argv[])
 	wslv_keypad_set(sc);
 	wslv_pointer_set(sc);
 
+	wslv_mqtt_connect(sc);
+
 	event_set(&sc->sc_ws_ev, sc->sc_ws_fd, EV_READ|EV_PERSIST,
 	    wslv_ws_rd, sc);
 	event_add(&sc->sc_ws_ev, NULL);
@@ -326,10 +401,15 @@ main(int argc, char *argv[])
 	evtimer_set(&sc->sc_idle_ev, wslv_idle, sc);
 	evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
 
-	wsluav(lv_scr_act(), lfile);
-//lv_demo_widgets();
-//lv_demo_keypad_encoder();
-//lv_demo_benchmark();
+//	lv_theme_default_init(sc->sc_lv_disp,
+//	    lv_palette_main(LV_PALETTE_BLUE),
+//	    lv_palette_main(LV_PALETTE_RED),
+//	    LV_THEME_DEFAULT_DARK, LV_FONT_DEFAULT);
+
+	wsluav(sc, lv_scr_act(), lfile);
+	//lv_demo_widgets();
+	//lv_demo_keypad_encoder();
+	//lv_demo_benchmark();
 
 	event_dispatch();
 
@@ -537,16 +617,16 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		}
 
 		pe = malloc(sizeof(*pe));
-		if (pe == NULL) {
-			warn("%s", __func__);
-			return;
+		if (pe != NULL) {
+			pe->pe_x = wp->wp_x;
+			pe->pe_y = wp->wp_y;
+			pe->pe_pressed = wp->wp_pressed;
+
+			TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
 		}
 
-		pe->pe_x = wp->wp_x;
-		pe->pe_y = wp->wp_y;
-		pe->pe_pressed = wp->wp_pressed;
-
-		TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
+		lv_indev_read_timer_cb(wp->wp_lv_indev_drv.read_timer);
+		wslv_refresh(sc);
 		break;
 	default:
 		printf("%s: type %u value %d\n", __func__,
@@ -727,7 +807,7 @@ wslv_ws_rd(int fd, short revents, void *arg)
 static void
 wslv_tick(int nil, short events, void *arg)
 {
-	static const struct timeval rate = { 0, 1000000 / 100 };
+	static const struct timeval rate = { 0, 1000000 / WSLV_REFR_PERIOD };
 
 	evtimer_add(&sc->sc_tick, &rate);
 
@@ -746,6 +826,8 @@ wslv_idle(int nil, short events, void *arg)
 	sc->sc_idle = 1;
 	warnx("idle");
 	wslv_svideo(sc, 0);
+
+	wslv_mqtt_tele(sc);
 }
 
 static void
@@ -759,6 +841,8 @@ wslv_wake(struct wslv_softc *sc)
 	sc->sc_idle = 0;
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
 		wp->wp_lv_indev_drv.read_cb = wslv_pointer_read;
+
+	wslv_mqtt_tele(sc);
 }
 
 static int
@@ -831,6 +915,13 @@ close:
 	return (-1);
 }
 
+static void
+wslv_refresh(struct wslv_softc *sc)
+{
+	if (sc->sc_ws_drm)
+		drm_refresh();
+}
+
 static int
 wslv_svideo(struct wslv_softc *sc, int on)
 {
@@ -868,6 +959,510 @@ wslv_lv_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area,
 	}
 
 	lv_disp_flush_ready(disp_drv);
+}
+
+/* */
+struct wslv_mqtt_cmnd;
+static const struct wslv_mqtt_cmnd *
+		wslv_mqtt_cmnd(const char *, size_t);
+
+/* wrappers */
+
+static void	wslv_mqtt_rd(int, short, void *);
+static void	wslv_mqtt_wr(int, short, void *);
+static void	wslv_mqtt_to(int, short, void *);
+
+/* callbacks */
+
+static void	wslv_mqtt_want_output(struct mqtt_conn *);
+static ssize_t	wslv_mqtt_output(struct mqtt_conn *, const void *, size_t);
+
+static void	wslv_mqtt_on_connect(struct mqtt_conn *);
+static void	wslv_mqtt_on_suback(struct mqtt_conn *, void *,
+		    const uint8_t *, size_t);
+static void	wslv_mqtt_on_message(struct mqtt_conn *,
+		    char *, size_t, char *, size_t, enum mqtt_qos);
+static void	wslv_mqtt_dead(struct mqtt_conn *);
+
+static void	wslv_mqtt_want_timeout(struct mqtt_conn *,
+		     const struct timespec *);
+
+static const struct mqtt_settings wslv_mqtt_settings = {
+	.mqtt_want_output = wslv_mqtt_want_output,
+	.mqtt_output = wslv_mqtt_output,
+	.mqtt_want_timeout = wslv_mqtt_want_timeout,
+
+	.mqtt_on_connect = wslv_mqtt_on_connect,
+	.mqtt_on_suback = wslv_mqtt_on_suback,
+	.mqtt_on_message = wslv_mqtt_on_message,
+	.mqtt_dead = wslv_mqtt_dead,
+};
+
+static int
+wslv_mqtt_check_topic(const char *t, const char **errstr)
+{
+	int ch = *t;
+
+	if (ch == '\0') {
+		*errstr = "empty";
+		return (-1);
+	}
+
+	do {
+		if (ch >= 'a' && ch <= 'z')
+			continue;
+		if (ch >= 'A' && ch <= 'Z')
+			continue;
+		if (ch >= '0' && ch <= '9')
+			continue;
+
+		switch (ch) {
+		case '.':
+		case '-':
+		case '_':
+			break;
+		default:
+			*errstr = "invalid character";
+			return (-1);
+		}
+	} while ((ch = *(++t)) != '\0');
+
+	return (0);
+}
+
+static int
+wslv_mqtt_socket(struct wslv_softc *sc)
+{
+	struct addrinfo hints, *res, *res0;
+	int error, serrno;
+	int s;
+	const char *cause = NULL;
+
+	memset(&hints, 0, sizeof(hints));
+	hints.ai_family = sc->sc_mqtt_family;
+	hints.ai_socktype = SOCK_STREAM;
+
+	error = getaddrinfo(sc->sc_mqtt_host, sc->sc_mqtt_serv, &hints, &res0);
+	if (error) {
+		errx(1, "MQTT host %s port %s: %s",
+		    sc->sc_mqtt_host, sc->sc_mqtt_serv,
+		    gai_strerror(error));
+	}
+
+	s = -1;
+	for (res = res0; res != NULL; res = res->ai_next) {
+		s = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+		if (s == -1) {
+			serrno = errno;
+			cause = "socket";
+			continue;
+		}
+
+		if (connect(s, res->ai_addr, res->ai_addrlen) == -1) {
+			serrno = errno;
+			cause = "connect";
+			close(s);
+			s = -1;
+			continue;
+		}
+
+		break;  /* okay we got one */
+	}
+
+	if (s == -1) {
+		errc(1, serrno, "MQTT host %s port %s %s",
+		    sc->sc_mqtt_host, sc->sc_mqtt_serv, cause);
+	}
+
+	sc->sc_mqtt_res0 = res0;
+
+	return (s);
+}
+
+static void
+wslv_mqtt_init(struct wslv_softc *sc)
+{
+	int nbio = 1;
+	char *topic;
+	int rv;
+	int s;
+	FILE *f;
+	const char *errstr;
+
+	if (wslv_mqtt_check_topic(sc->sc_mqtt_device, &errstr) == -1)
+		errx(1, "mqtt device topic: %s", errstr);
+
+	s = wslv_mqtt_socket(sc);
+
+	if (ioctl(s, FIONBIO, &nbio) == -1)
+		err(1, "set mqtt nbio");
+
+	rv = asprintf(&topic, "tele/%s/LWT", sc->sc_mqtt_device);
+	if (rv == -1)
+		errx(1, "mqtt lwt topic printf error");
+
+	sc->sc_mqtt_will_topic = topic;
+	sc->sc_mqtt_will_topic_len = rv;
+
+	sc->sc_mqtt_conn = mqtt_conn_create(&wslv_mqtt_settings, sc);
+	if (sc->sc_mqtt_conn == NULL)
+		errx(1, "unable to create mqtt connection");
+
+	sc->sc_mqtt_fd = s;
+}
+
+static void
+wslv_mqtt_connect(struct wslv_softc *sc)
+{
+	static const char offline[] = "Offline";
+	struct mqtt_conn_settings mcs = {
+		.clean_session = 1,
+		.keep_alive = 30,
+
+		.clientid = sc->sc_mqtt_device,
+		.clientid_len = strlen(sc->sc_mqtt_device),
+
+		.will_topic = sc->sc_mqtt_will_topic,
+		.will_topic_len = sc->sc_mqtt_will_topic_len,
+		.will_payload = offline,
+		.will_payload_len = sizeof(offline) - 1,
+		.will_retain = MQTT_RETAIN,
+	};
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+
+//warnx("%s", __func__);
+
+	event_set(&sc->sc_mqtt_ev_rd, sc->sc_mqtt_fd, EV_READ|EV_PERSIST,
+	    wslv_mqtt_rd, sc);
+	event_set(&sc->sc_mqtt_ev_wr, sc->sc_mqtt_fd, EV_WRITE,
+	    wslv_mqtt_wr, sc);
+	evtimer_set(&sc->sc_mqtt_ev_to, wslv_mqtt_to, sc);
+
+	if (mqtt_connect(mc, &mcs) == -1)
+		errx(1, "failed to connect mqtt");
+
+	event_add(&sc->sc_mqtt_ev_rd, NULL);
+
+	evtimer_set(&sc->sc_mqtt_tele_period, wslv_mqtt_tele_period, sc);
+}
+
+void
+wslv_mqtt_rd(int fd, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+	char buf[8192];
+	ssize_t rv;
+
+	rv = read(fd, buf, sizeof(buf));
+//warnx("%s %zd", __func__, rv);
+	switch (rv) {
+	case -1:
+		switch (errno) {
+		case EAGAIN:
+		case EINTR:
+			return;
+		default:
+			break;
+		}
+		err(1, "%s", __func__);
+		/* NOTREACHED */
+	case 0:
+		mqtt_disconnect(mc);
+		mqtt_conn_destroy(mc);
+		errx(1, "disconnected");
+		/* NOTREACHED */
+	default:
+		break;
+	}
+
+//	hexdump(buf, rv);
+	mqtt_input(mc, buf, rv);
+}
+
+void
+wslv_mqtt_wr(int fd, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+
+	mqtt_output(mc);
+}
+
+static void
+wslv_mqtt_want_output(struct mqtt_conn *mc)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+
+	event_add(&sc->sc_mqtt_ev_wr, NULL);
+}
+
+static ssize_t
+wslv_mqtt_output(struct mqtt_conn *mc, const void *buf, size_t len)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+	int fd = EVENT_FD(&sc->sc_mqtt_ev_wr);
+	ssize_t rv;
+
+//	hexdump(buf, len);
+
+	rv = write(fd, buf, len);
+//warnx("%s %zd/%zu", __func__, rv, len);
+	if (rv == -1) {
+		switch (errno) {
+		case EAGAIN:
+		case EINTR:
+			return (0);
+		default:
+			break;
+		}
+
+		err(1, "%s", __func__);
+		/* XXX reconnect */
+	}
+
+	return (rv);
+}
+
+static void
+wslv_mqtt_to(int nil, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+
+	mqtt_timeout(mc);
+}
+
+static void
+wslv_mqtt_want_timeout(struct mqtt_conn *mc, const struct timespec *ts)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+	struct timeval tv;
+
+	TIMESPEC_TO_TIMEVAL(&tv, ts);
+
+	event_add(&sc->sc_mqtt_ev_to, &tv);
+}
+
+static const char prefix_cmnd[] = "cmnd";
+#define prefix_cmnd_len (sizeof(prefix_cmnd) - 1)
+
+static void
+wslv_mqtt_on_connect(struct mqtt_conn *mc)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+	char filter[128];
+	int rv;
+
+	warnx("%s", __func__);
+
+	rv = snprintf(filter, sizeof(filter), "%s/%s/#",
+	    prefix_cmnd, sc->sc_mqtt_device);
+	if (rv == -1 || (size_t)rv >= sizeof(filter))
+		errx(1, "mqtt subscribe filter");
+
+	if (mqtt_subscribe(mc, NULL, filter, rv, MQTT_QOS0) == -1)
+		errx(1, "mqtt subscribe %s failed", filter);
+}
+
+static void
+wslv_mqtt_on_suback(struct mqtt_conn *mc, void *cookie,
+    const uint8_t *rcodes, size_t nrcodes)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+	static const char online[] = "Online";
+
+	warnx("Subscribed!");
+
+	if (mqtt_publish(mc,
+	    sc->sc_mqtt_will_topic, sc->sc_mqtt_will_topic_len,
+	    online, sizeof(online) - 1, MQTT_QOS0, MQTT_RETAIN) == -1)
+		errx(1, "mqtt publish %s %s", sc->sc_mqtt_will_topic, online);
+
+	wslv_mqtt_tele_period(0, 0, sc);
+}
+
+struct wslv_mqtt_cmnd {
+	const char *name;
+	void (*handler)(struct wslv_softc *, const char *,
+	    const char *, size_t);
+};
+
+static void	wslv_mqtt_blank(struct wslv_softc *, const char *,
+		    const char *, size_t);
+
+static const struct wslv_mqtt_cmnd wslv_mqtt_cmnds[] = {
+	{ "blank",		wslv_mqtt_blank },
+};
+
+static const struct wslv_mqtt_cmnd *
+wslv_mqtt_cmnd(const char *name, size_t name_len)
+{
+	size_t i;
+
+	for (i = 0; i < nitems(wslv_mqtt_cmnds); i++) {
+		const struct wslv_mqtt_cmnd *cmnd = &wslv_mqtt_cmnds[i];
+		if (strncasecmp(cmnd->name, name, name_len) == 0)
+			return (cmnd);
+	}
+
+	return (NULL);
+}
+
+static void
+wslv_mqtt_on_message(struct mqtt_conn *mc,
+    char *topic, size_t topic_len, char *payload, size_t payload_len,
+    enum mqtt_qos qos)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+	size_t name_len, device_len, cmnd_len, off;
+	const char *name;
+	const char *sep;
+	const struct wslv_mqtt_cmnd *cmnd;
+
+	warnx("topic %s payload %s", topic, payload);
+	if (payload == NULL || *payload == '\0')
+		goto drop;
+
+	if (topic_len <= prefix_cmnd_len) /* <= includes '/' */
+		goto drop;
+	if (strncmp(topic, prefix_cmnd, prefix_cmnd_len) != 0)
+		goto drop;
+	off = prefix_cmnd_len;
+	if (topic[off++] != '/')
+		goto drop;
+
+	device_len = strlen(sc->sc_mqtt_device);
+	if (topic_len <= (off + device_len)) /* <= includes '/' */
+		goto drop;
+	if (strncmp(topic + off, sc->sc_mqtt_device, device_len) != 0)
+		goto drop;
+	off += device_len;
+	if (topic[off++] != '/')
+		goto drop;
+
+	name = topic + off;
+	cmnd_len = name_len = topic_len - off;
+	sep = memchr(name, '/', name_len);
+	if (sep != NULL)
+		cmnd_len = sep - name;
+
+	warnx("command %.*s (%s)", (int)cmnd_len, name, name);
+
+	cmnd = wslv_mqtt_cmnd(name, cmnd_len);
+	if (cmnd != NULL)
+		(*cmnd->handler)(sc, name, payload, payload_len);
+	else
+		wsluav_cmnd(sc, name, name_len, payload, payload_len);
+
+drop:
+        free(topic);
+        free(payload);
+}
+
+static void
+wslv_mqtt_tele(struct wslv_softc *sc)
+{
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+	char topic[128];
+	char payload[128];
+	size_t topic_len, payload_len;
+	int rv;
+
+	warnx("%s", __func__);
+
+	rv = snprintf(topic, sizeof(topic), "tele/%s/STATUS",
+	    sc->sc_mqtt_device);
+	if (rv == -1)
+		errx(1, "mqtt tele topic");
+	topic_len = rv;
+	if (topic_len >= sizeof(topic))
+		errx(1, "mqtt tele topic len");
+
+	rv = snprintf(payload, sizeof(payload), "{\"blank\":\"%s\"}",
+	    sc->sc_idle ? "ON" : "OFF");
+	if (rv == -1)
+		errx(1, "mqtt tele payload");
+	payload_len = rv;
+	if (payload_len >= sizeof(payload))
+		errx(1, "mqtt tele payload len");
+
+	if (mqtt_publish(mc, topic, topic_len, payload, payload_len,
+	    MQTT_QOS0, MQTT_NORETAIN) == -1)
+		errx(1, "mqtt publish %s", topic);
+}
+
+void
+wslv_tele(struct wslv_softc *sc, const char *suffix, size_t suffix_len,
+    const char *payload, size_t payload_len)
+{
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+	char topic[128];
+	size_t topic_len;
+	int rv;
+
+	rv = snprintf(topic, sizeof(topic), "tele/%s/%s",
+	    sc->sc_mqtt_device, suffix);
+	if (rv == -1)
+		errx(1, "mqtt tele topic");
+	topic_len = rv;
+	if (topic_len >= sizeof(topic))
+		errx(1, "mqtt_tele topic len");
+
+	if (mqtt_publish(mc, topic, topic_len, payload, payload_len,
+	    MQTT_QOS0, MQTT_NORETAIN) == -1)
+		errx(1, "mqtt publish %s", topic);
+}
+
+static void
+wslv_mqtt_tele_period(int nope, short events, void *arg)
+{
+	static const struct timeval rate = { 300, 0 };
+	struct wslv_softc *sc = arg;
+
+	evtimer_add(&sc->sc_mqtt_tele_period, &rate);
+
+	wslv_mqtt_tele(sc);
+}
+
+static void
+wslv_mqtt_blank(struct wslv_softc *sc, const char *name,
+    const char *payload, size_t payload_len)
+{
+	int blank;
+
+	if (strcasecmp(payload, "on") == 0 ||
+	    strcasecmp(payload, "1") == 0)
+		blank = 1;
+	else if (strcasecmp(payload, "off") == 0 ||
+	    strcasecmp(payload, "0") == 0) {
+		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+		blank = 0;
+	} else if (strcasecmp(payload, "toggle") == 0 ||
+	    strcasecmp(payload, "2") == 0)
+		blank = !sc->sc_idle;
+	else
+		goto publish;
+
+	if (blank != sc->sc_idle) {
+		if (blank) {
+			evtimer_del(&sc->sc_idle_ev);
+			wslv_idle(0, 0, sc);
+		} else {
+			wslv_svideo(sc, 1);
+			wslv_wake(sc);
+		}
+		return;
+	}
+
+publish:
+	wslv_mqtt_tele(sc);
+}
+
+static void
+wslv_mqtt_dead(struct mqtt_conn *mc)
+{
+	err(1, "%s", __func__);
 }
 
 uint64_t

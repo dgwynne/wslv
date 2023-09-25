@@ -27,5 +27,6 @@ void		drm_get_sizes(lv_coord_t *, lv_coord_t *, uint32_t *);
 void		*drm_get_fb(int);
 void		 drm_event_set(lv_disp_drv_t *);
 int		 drm_svideo(int);
+void		 drm_refresh(void);
 
 #endif /* _WSLV_DRM_H_ */

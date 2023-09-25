@@ -19,6 +19,14 @@
 #ifndef _WSLV_LUAVGL_H_
 #define _WSLV_LUAVGL_H_
 
-void	wsluav(lv_obj_t *, const char *);
+struct wslv_softc;
+
+void	wsluav(struct wslv_softc *, lv_obj_t *, const char *);
+
+void	wslv_tele(struct wslv_softc *,
+	    const char *, size_t, const char *, size_t);
+
+void	wsluav_cmnd(struct wslv_softc *,
+	    const char *, size_t, const char *, size_t);
 
 #endif /* _WSLV_LUAVGL_H_ */
