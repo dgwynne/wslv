@@ -14,8 +14,10 @@ with. wslv would be the basis for the user interface they provide.
 Alternative, a cheap mini PC and a touch screen mounted on the wall
 would also work.
 
-While LVGL and wscons provide the user interface, MQTT will allow
-it to interact with other hardware or visa versa.
+While LVGL and wscons provide the user interface, MQTT allows it
+to interact with other hardware or visa versa. Lua via luavgl
+provides a relatively easy scripting language to build an interface
+out of LVGL.
 
 While it is possible to run a desktop environment and browser in
 kios mode to provide a user interface, integrating with the devices
@@ -33,6 +35,8 @@ Also, I'm an idiot and make up work for myself.
 Anything that provides a framebuffer and a mouse/touchscreen should
 be Good Enough(tm).
 
+- Install Lua 5.4 and git via `pkg_add`
+
 - Get the source code
 
 `git clone` and an update of the submodules is probably the easiest way
@@ -46,15 +50,3 @@ default it tries to open /dev/ttyC0 or /dev/dri/card0 for the
 display, and /dev/wsmouse0 for a pointer. When you log in on the
 console the system changes the ownership of these devices so you
 can use them as a non-privileged user.
-
-## To Do
-
-- integrate MQTT again
-
-## Ideas
-
-- integrate [LVGL + Berry](https://github.com/lvgl/lv_binding_berry)
-
-The goal would be to allow reuse of Berry code between Tasmota and
-wslv for implementing a user interface that communicates using MQTT
-to control stuff.
