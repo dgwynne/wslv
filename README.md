@@ -24,11 +24,10 @@ provides a relatively easy scripting language to build an interface
 out of LVGL.
 
 While it is possible to run a desktop environment and browser in
-kiosk mode to provide a user interface, integrating with the devices
-directly allows for precise (and remote) control of functionality,
-such suspending and resuming the display. It should also be portable
-to resource constrained systems that would not be able to support
-a full browser environment.
+kiosk mode to provide a user interface, integrating with the OpenBSD
+wscons devices directly allows for precise control of the supported
+peripherals. It should also be portable to resource constrained
+systems that are not able to support a full browser environment.
 
 Also, I'm an idiot and make up work for myself.
 
