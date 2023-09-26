@@ -1,8 +1,10 @@
-# LVGL x wscons(4) on OpenBSD
+# LVGL x wscons(4) x Lua on OpenBSD
+
+This integrates LVGL, MQTT, Lua, and OpenBSD to provide a platform
+for building touch screen interfaces.
 
 This implements LVGL drivers for the OpenBSD wsdisplay(4) or drm(4)
-frame buffer devices, and wsmouse(4) devices as a pointer. It's
-Good Enough(tm) to support the LVGL demo applications.
+frame buffer devices, and wsmouse(4) devices as a pointer.
 
 ## But why?
 
@@ -20,9 +22,9 @@ provides a relatively easy scripting language to build an interface
 out of LVGL.
 
 While it is possible to run a desktop environment and browser in
-kios mode to provide a user interface, integrating with the devices
-directly allows for precise (and remote) control of functionality
-like suspending and resuming the display. It should also be portable
+kiosk mode to provide a user interface, integrating with the devices
+directly allows for precise (and remote) control of functionality,
+such suspending and resuming the display. It should also be portable
 to resource constrained systems that would not be able to support
 a full browser environment.
 
