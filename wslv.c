@@ -20,6 +20,7 @@
 #include <sys/ioctl.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/param.h> /* for MAXHOSTNAMELEN */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -239,7 +240,10 @@ usage(void)
 {
 	extern char *__progname;
 
-	fprintf(stderr, "usage: %s [-46] [-W wsdiplay] -l lua\n", __progname);
+	fprintf(stderr,
+	    "usage: %s [-46] [-d devname] [-i blanktime] [-p port]\n"
+	    "\t[-M wsmouse] [-W wsdiplay] -h mqtthost -l script.lua\n",
+	    __progname);
 
 	exit(0);
 }
@@ -247,6 +251,7 @@ usage(void)
 int
 main(int argc, char *argv[])
 {
+	char hostname[MAXHOSTNAMELEN];
 	const char *devname = WS_DISPLAY;
 	const char *lfile = NULL;
 	const char *errstr;
@@ -310,8 +315,16 @@ main(int argc, char *argv[])
 	}
 
 	if (sc->sc_mqtt_device == NULL) {
-		warnx("mqtt device name unspecified");
-		usage();
+		char *dot;
+
+		if (gethostname(hostname, sizeof(hostname)) == -1)
+			err(1, "gethostname");
+
+		dot = strchr(hostname, '.');
+		if (dot != NULL)
+			*dot = '\0';
+
+		sc->sc_mqtt_device = hostname;
 	}
 
 	if (wslv_open(sc, devname, &errstr) == -1)
