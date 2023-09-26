@@ -4,7 +4,9 @@ This integrates LVGL, MQTT, Lua, and OpenBSD to provide a platform
 for building touch screen interfaces.
 
 This implements LVGL drivers for the OpenBSD wsdisplay(4) or drm(4)
-frame buffer devices, and wsmouse(4) devices as a pointer.
+frame buffer devices, and wsmouse(4) devices as a pointer. The
+program connects to an MQTT server, and provides integration between
+MQTT and LVGL via Lua and the luavgl library.
 
 ## But why?
 
