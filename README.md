@@ -28,6 +28,11 @@ a full browser environment.
 
 Also, I'm an idiot and make up work for myself.
 
+## Todo
+
+- Learn LVGL
+- Find and fix a use-after-free in the luavgl code
+
 ## How?
 
 - Install OpenBSD on supported hardware
