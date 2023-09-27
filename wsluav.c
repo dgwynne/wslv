@@ -288,8 +288,6 @@ wslv_make_font(const char *name, int size, int weight)
 		.style = FT_FONT_STYLE_NORMAL,
 	};
 
-printf("%s %s %d %d\n", __func__, name, size, weight);
-
 	if (!lv_ft_font_init(&info))
 		return (NULL);
 
