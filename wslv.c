@@ -336,6 +336,8 @@ main(int argc, char *argv[])
 	wslv_mqtt_init(sc);
 
 	lv_init();
+	lv_freetype_init(0, 0, 0);
+
 	if (sc->sc_ws_drm) {
 		lv_coord_t w, h;
 		size_t len;

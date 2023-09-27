@@ -279,10 +279,35 @@ reload_cb(lv_event_t *e)
 	lua_ctx = lua_load_script(&args);
 }
 
+static const lv_font_t *
+wslv_make_font(const char *name, int size, int weight)
+{
+	lv_ft_info_t info = {
+		.name = name,
+		.weight = size,
+		.style = FT_FONT_STYLE_NORMAL,
+	};
+
+printf("%s %s %d %d\n", __func__, name, size, weight);
+
+	if (!lv_ft_font_init(&info))
+		return (NULL);
+
+	return (info.font);
+}
+
+static void
+wslv_delete_font(const lv_font_t *f)
+{
+	lv_ft_font_destroy((lv_font_t *)f);
+}
+
 void
 wsluav(struct wslv_softc *sc, lv_obj_t *lvroot, const char *script)
 {
 	args.root = lvroot;
+	args.make_font = wslv_make_font;
+	args.delete_font = wslv_delete_font;
 	args.script = script;
 
 	wslv = sc;
