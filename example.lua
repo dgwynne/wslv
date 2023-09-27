@@ -1,6 +1,8 @@
 local max = 'max'
 local min = 'min'
 
+local X11Fonts = '/usr/X11R6/lib/X11/fonts/TTF/'
+
 local function tele(topic, payload)
 	if wslv.in_cmnd() then
 		return
@@ -26,6 +28,7 @@ light.row:remove_style_all()
 
 light.label = light.row:Label {
 	text = "Light",
+	text_font = lvgl.Font(X11Fonts .. 'DejaVuSans.ttf', 24),
 	align = lvgl.ALIGN.LEFT_MID,
 }
 light.power = light.row:Switch {
