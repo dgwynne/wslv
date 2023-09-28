@@ -278,10 +278,17 @@ main(int argc, char *argv[])
 			sc->sc_mqtt_host = optarg;
 			break;
 		case 'i':
-			sc->sc_idle_time.tv_sec = strtonum(optarg,
-			    WSLV_IDLE_TIME_MIN, WSLV_IDLE_TIME_MAX, &errstr);
-			if (errstr != NULL)
-				errx(1, "idle time: %s", errstr);
+			if (strcmp(optarg, "min") == 0)
+				sc->sc_idle_time.tv_sec = WSLV_IDLE_TIME_MIN;
+			else if (strcmp(optarg, "max") == 0)
+				sc->sc_idle_time.tv_sec = WSLV_IDLE_TIME_MAX;
+			else {
+				sc->sc_idle_time.tv_sec = strtonum(optarg,
+				    WSLV_IDLE_TIME_MIN, WSLV_IDLE_TIME_MAX,
+				    &errstr);
+				if (errstr != NULL)
+					errx(1, "idle time: %s", errstr);
+			}
 			break;
 		case 'K':
 			wslv_keypad_add(sc, optarg);
