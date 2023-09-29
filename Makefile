@@ -80,6 +80,8 @@ ${S:T:.c=.o}: ${LVGL_SRC_DIR}/${S}
 
 LVGL_EXTRA_SRCS = lv_extra.c
 
+LVGL_EXTRA_SRCS += libs/fsdrv/lv_fs_posix.c
+
 LVGL_EXTRA_SRCS += layouts/flex/lv_flex.c
 LVGL_EXTRA_SRCS += layouts/grid/lv_grid.c
 
@@ -190,6 +192,20 @@ ${S:T:.c=.o}: ${S}
 .endfor
 
 LDADD+=-ldrm
+
+# spng
+
+SPNGPKG=spng
+SPNG_CFLAGS!=pkg-config --cflags ${SPNGPKG}
+SPNG_LDFLAGS!=pkg-config --libs ${SPNGPKG}
+
+SPNG_SRCS=lv_spng.c
+
+${SPNG_SRCS:.c=.o}: ${SPNG_SRCS}
+	${LVCOMPILE} ${SPNG_CFLAGS} -I${LVGL_SRC_DIR} -o ${.TARGET} ${.IMPSRC}
+
+OBJS+=${SPNG_SRCS:.c=.o}
+LDADD+=${SPNG_LDFLAGS}
 
 # amqtt
 

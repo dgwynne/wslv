@@ -54,6 +54,9 @@
 uint32_t wslv_disp_refr_period = WSLV_REFR_PERIOD;
 uint32_t wslv_indev_refr_period = WSLV_REFR_PERIOD;
 
+/* lv_spng.c */
+int	lv_spng_init(void);
+
 #include <ctype.h>
 static int
 printable(int ch)
@@ -343,6 +346,7 @@ main(int argc, char *argv[])
 	wslv_mqtt_init(sc);
 
 	lv_init();
+	lv_spng_init();
 	lv_freetype_init(0, 0, 0);
 
 	if (sc->sc_ws_drm) {
