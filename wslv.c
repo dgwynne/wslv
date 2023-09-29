@@ -1490,7 +1490,7 @@ wslv_ms(void)
 	return (rv);
 }
 
-lv_font_t *
+const lv_font_t *
 wslv_font_default(void)
 {
 	return (&lv_font_montserrat_14);
