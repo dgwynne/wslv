@@ -43,7 +43,7 @@ Also, I'm an idiot and make up work for myself.
 Anything that provides a framebuffer and a mouse/touchscreen should
 be Good Enough(tm).
 
-- Install Lua 5.4 and git via `pkg_add`
+- Install Lua 5.4, libspng, and git via `pkg_add`
 
 - Get the source code
 
