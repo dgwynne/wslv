@@ -314,6 +314,12 @@ main(int argc, char *argv[])
 		}
 	}
 
+	argc -= optind;
+	argv += optind;
+
+	if (argc != 0)
+		usage();
+
 	if (lfile == NULL) {
 		warnx("lua script not specified");
 		usage();
