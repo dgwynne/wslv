@@ -97,30 +97,6 @@ hexdump(const void *d, size_t datalen)
 
 struct wslv_softc;
 
-struct wslv_keypad_event {
-	int				 ke_key;
-	unsigned int			 ke_state;
-	int16_t				 ke_enc_diff;
-	TAILQ_ENTRY(wslv_keypad_event)	 ke_entry;
-};
-TAILQ_HEAD(wslv_keypad_events, wslv_keypad_event);
-
-struct wslv_keypad {
-	struct wslv_softc		*wk_wslv;
-	const char			*wk_devname;
-	struct event			 wk_ev;
-	lv_indev_drv_t			 wk_lv_indev_drv;
-	lv_indev_t			*wk_lv_indev;
-
-	int				 wk_key;
-	unsigned int			 wk_state;
-
-	struct wslv_keypad_events	 wk_events;
-
-	TAILQ_ENTRY(wslv_keypad)	 wk_entry;
-};
-TAILQ_HEAD(wslv_keypad_list, wslv_keypad);
-
 struct wslv_pointer_event {
 	uint32_t			 pe_x;
 	uint32_t			 pe_y;
@@ -175,7 +151,6 @@ struct wslv_softc {
 	struct event			 sc_idle_ev;
 	unsigned int			 sc_idle;
 
-	struct wslv_keypad_list		 sc_keypad_list;
 	struct wslv_pointer_list	 sc_pointer_list;
 
 	int				 sc_mqtt_family;
@@ -214,8 +189,6 @@ struct wslv_softc *sc = &_wslv;
 static int		wslv_open(struct wslv_softc *, const char *,
 			    const char **);
 
-static void		wslv_keypad_add(struct wslv_softc *, const char *);
-static void		wslv_keypad_set(struct wslv_softc *);
 static void		wslv_pointer_add(struct wslv_softc *, const char *);
 static void		wslv_pointer_set(struct wslv_softc *);
 
@@ -263,7 +236,6 @@ main(int argc, char *argv[])
 	uint32_t *word;
 	int ch;
 
-	TAILQ_INIT(&sc->sc_keypad_list);
 	TAILQ_INIT(&sc->sc_pointer_list);
 
 	while ((ch = getopt(argc, argv, "46d:h:i:K:l:M:p:W:")) != -1) {
@@ -292,9 +264,6 @@ main(int argc, char *argv[])
 				if (errstr != NULL)
 					errx(1, "idle time: %s", errstr);
 			}
-			break;
-		case 'K':
-			wslv_keypad_add(sc, optarg);
 			break;
 		case 'l':
 			lfile = optarg;
@@ -418,7 +387,6 @@ main(int argc, char *argv[])
 	LV_IMG_DECLARE(mouse_cursor_icon);
 	lv_img_set_src(sc->sc_lv_cursor, &mouse_cursor_icon);
 
-	wslv_keypad_set(sc);
 	wslv_pointer_set(sc);
 
 	wslv_mqtt_connect(sc);
@@ -461,22 +429,6 @@ err:
 }
 
 static void
-wslv_keypad_add(struct wslv_softc *sc, const char *devname)
-{
-	struct wslv_keypad *wk;
-
-	wk = malloc(sizeof(*wk));
-	if (wk == NULL)
-		err(1, NULL);
-
-	wk->wk_devname = devname;
-	wk->wk_state = LV_INDEV_STATE_RELEASED;
-	TAILQ_INIT(&wk->wk_events);
-
-	TAILQ_INSERT_TAIL(&sc->sc_keypad_list, wk, wk_entry);
-}
-
-static void
 wslv_pointer_add(struct wslv_softc *sc, const char *devname)
 {
 	struct wslv_pointer *wp;
@@ -489,67 +441,6 @@ wslv_pointer_add(struct wslv_softc *sc, const char *devname)
 	TAILQ_INIT(&wp->wp_events);
 
 	TAILQ_INSERT_TAIL(&sc->sc_pointer_list, wp, wp_entry);
-}
-
-static void
-wslv_keypad_event_proc(struct wslv_keypad *wk,
-    const struct wscons_event *wsevt)
-{
-	struct wslv_keypad_event *ke;
-	lv_disp_t *disp = wk->wk_lv_indev_drv.disp;
-	int v = wsevt->value;
-
-	printf("%s: type %u value %d 0x%02x\n", __func__,
-	    wsevt->type, v, v);
-
-	switch (wsevt->type) {
-	case WSCONS_EVENT_KEY_DOWN:
-		wk->wk_key = v;
-		wk->wk_state = LV_INDEV_STATE_PRESSED;
-		break;
-	case WSCONS_EVENT_KEY_UP:
-		wk->wk_key = v;
-		/* FALLTHROUGH */
-	case WSCONS_EVENT_ALL_KEYS_UP:
-		wk->wk_state = LV_INDEV_STATE_RELEASED;
-		break;
-	case WSCONS_EVENT_SYNC:
-		break;
-	default:
-		printf("%s: type %u value %d\n", __func__,
-		    wsevt->type, wsevt->value);
-		return;
-	}
-
-	ke = malloc(sizeof(*ke));
-	if (ke == NULL) {
-		warn("%s", __func__);
-		return;
-	}
-
-	ke->ke_key = wk->wk_key;
-	ke->ke_state = wk->wk_state;
-
-	TAILQ_INSERT_TAIL(&wk->wk_events, ke, ke_entry);
-}
-
-static void
-wslv_keypad_event(int fd, short revents, void *arg)
-{
-	struct wslv_keypad *wk = arg;
-	struct wscons_event wsevts[64];
-	ssize_t rv;
-	size_t i, n;
-
-	rv = read(fd, wsevts, sizeof(wsevts));
-	if (rv == -1) {
-		warn("%s", __func__);
-		return;
-	}
-
-	n = rv / sizeof(wsevts[0]);
-	for (i = 0; i < n; i++)
-		wslv_keypad_event_proc(wk, &wsevts[i]);
 }
 
 static const char *wsevt_type_names[] = {
@@ -687,29 +578,6 @@ wslv_pointer_event(int fd, short revents, void *arg)
 }
 
 static void
-wslv_keypad_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
-{
-	struct wslv_keypad *wk = drv->user_data;
-	struct wslv_keypad_event *ke;
-	lv_indev_state_t state;
-
-	ke = TAILQ_FIRST(&wk->wk_events);
-	if (ke == NULL) {
-		data->key = wk->wk_key;
-		data->state = wk->wk_state;
-		return;
-	}
-
-	data->key = ke->ke_key;
-	data->state = ke->ke_state;
-
-	TAILQ_REMOVE(&wk->wk_events, ke, ke_entry);
-	free(ke);
-
-	data->continue_reading = !TAILQ_EMPTY(&wk->wk_events);
-}
-
-static void
 wslv_pointer_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
 	struct wslv_pointer *wp = drv->user_data;
@@ -745,32 +613,6 @@ wslv_pointer_idle(lv_indev_drv_t *drv, lv_indev_data_t *data)
 	data->point.y = wp->wp_y;
 	data->state = LV_INDEV_STATE_RELEASED;
 	data->continue_reading = 0;
-}
-
-static void
-wslv_keypad_set(struct wslv_softc *sc)
-{
-	struct wslv_keypad *wk;
-	int fd;
-
-	TAILQ_FOREACH(wk, &sc->sc_keypad_list, wk_entry) {
-		fd = open(wk->wk_devname, O_RDWR|O_NONBLOCK);
-		if (fd == -1)
-			err(1, "keypad %s", wk->wk_devname);
-
-		wk->wk_wslv = sc;
-		event_set(&wk->wk_ev, fd, EV_READ|EV_PERSIST,
-		    wslv_keypad_event, wk);
-
-		lv_indev_drv_init(&wk->wk_lv_indev_drv);
-		wk->wk_lv_indev_drv.type = LV_INDEV_TYPE_KEYPAD;
-		wk->wk_lv_indev_drv.read_cb = wslv_keypad_read;
-		wk->wk_lv_indev_drv.user_data = wk;
-
-		wk->wk_lv_indev = lv_indev_drv_register(&wk->wk_lv_indev_drv);
-
-		event_add(&wk->wk_ev, NULL);
-	}
 }
 
 static void
