@@ -99,12 +99,10 @@ lv_spng_open(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
 	spng_ctx *ctx;
 	struct spng_ihdr ihdr;
 	lv_fs_file_t f;
-        const lv_img_dsc_t *idsc;
+	const lv_img_dsc_t *idsc;
 	lv_res_t res = LV_RES_INV;
-	size_t img_size;
-	int fmt = dsc->header.cf == LV_IMG_CF_TRUE_COLOR_ALPHA ?
-	    SPNG_FMT_RGBA8 : SPNG_FMT_RGB8;
-	fmt = SPNG_FMT_RGBA8;
+	size_t img_size, i;
+	int fmt = SPNG_FMT_RGBA8;
 
 	ctx = spng_ctx_new(0);
 	if (ctx == NULL)
@@ -139,6 +137,19 @@ lv_spng_open(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
 	if (spng_decode_image(ctx, img_data, img_size, fmt, 0) != 0) {
 		lv_mem_free(img_data);
 		goto close;
+	}
+
+	/* sigh */
+	for (i = 0; i < img_size; i += 4) {
+		uint8_t *px = img_data + i;
+		lv_color32_t c;
+
+		c.ch.red = px[0];
+		c.ch.green = px[1];
+		c.ch.blue = px[2];
+		c.ch.alpha = px[3];
+
+		*(lv_color32_t *)px = c;
 	}
 
 	dsc->img_data = img_data;
