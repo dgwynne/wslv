@@ -54,6 +54,8 @@
 uint32_t wslv_disp_refr_period = WSLV_REFR_PERIOD;
 uint32_t wslv_indev_refr_period = WSLV_REFR_PERIOD;
 
+LV_IMG_DECLARE(mouse_cursor_icon);
+
 /* lv_spng.c */
 int	lv_spng_init(void);
 
@@ -116,6 +118,7 @@ struct wslv_pointer {
 	struct event			 wp_ev;
 	lv_indev_drv_t			 wp_lv_indev_drv;
 	lv_indev_t			*wp_lv_indev;
+	lv_obj_t			*wp_lv_cursor;
 
 	struct wsmouse_calibcoords	 wp_ws_calib;
 
@@ -146,7 +149,6 @@ struct wslv_softc {
 	lv_disp_draw_buf_t		 sc_lv_disp_buf;
 	lv_disp_drv_t			 sc_lv_disp_drv;
 	lv_disp_t			*sc_lv_disp;
-	lv_obj_t			*sc_lv_cursor;
 
 
 	struct event			 sc_tick;
@@ -384,12 +386,6 @@ main(int argc, char *argv[])
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
 	    sc->sc_name, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height,
 	    sc->sc_ws_vinfo.depth, sc->sc_ws_fb, sc->sc_ws_fblen);
-
-	sc->sc_lv_cursor = lv_img_create(lv_scr_act());
-	if (sc->sc_lv_cursor == NULL)
-		err(1, "pointer cursor");
-	LV_IMG_DECLARE(mouse_cursor_icon);
-	lv_img_set_src(sc->sc_lv_cursor, &mouse_cursor_icon);
 
 	wslv_pointer_set(sc);
 
@@ -647,7 +643,11 @@ wslv_pointer_set(struct wslv_softc *sc)
 		wp->wp_lv_indev = lv_indev_drv_register(&wp->wp_lv_indev_drv);
 
 		if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL) {
-			lv_indev_set_cursor(wp->wp_lv_indev, sc->sc_lv_cursor);
+			wp->wp_lv_cursor = lv_img_create(lv_scr_act());
+			if (wp->wp_lv_cursor == NULL)
+				err(1, "%s cursor", wp->wp_devname);
+			lv_img_set_src(wp->wp_lv_cursor, &mouse_cursor_icon);
+			lv_indev_set_cursor(wp->wp_lv_indev, wp->wp_lv_cursor);
 		}
 
 		event_add(&wp->wp_ev, NULL);
