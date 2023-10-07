@@ -97,10 +97,14 @@ hexdump(const void *d, size_t datalen)
 
 struct wslv_softc;
 
+struct wslv_pointer_state {
+	uint32_t			 p_x;
+	uint32_t			 p_y;
+	unsigned int			 p_pressed;
+};
+
 struct wslv_pointer_event {
-	uint32_t			 pe_x;
-	uint32_t			 pe_y;
-	unsigned int			 pe_pressed;
+	struct wslv_pointer_state	 pe_state;
 	TAILQ_ENTRY(wslv_pointer_event)	 pe_entry;
 };
 TAILQ_HEAD(wslv_pointer_events, wslv_pointer_event);
@@ -108,15 +112,15 @@ TAILQ_HEAD(wslv_pointer_events, wslv_pointer_event);
 struct wslv_pointer {
 	struct wslv_softc		*wp_wslv;
 	const char			*wp_devname;
+	unsigned int			 wp_ws_type;
 	struct event			 wp_ev;
 	lv_indev_drv_t			 wp_lv_indev_drv;
 	lv_indev_t			*wp_lv_indev;
 
 	struct wsmouse_calibcoords	 wp_ws_calib;
 
-	uint32_t			 wp_x;
-	uint32_t			 wp_y;
-	unsigned int			 wp_pressed;
+	struct wslv_pointer_state	 wp_state;
+	struct wslv_pointer_state	 wp_state_synced;
 
 	struct wslv_pointer_events	 wp_events;
 
@@ -490,50 +494,52 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		v -= cc->minx;
 		v *= lv_disp_get_hor_res(disp);
 		v /= cc->maxx - cc->minx;
-		wp->wp_x = v;
+		wp->wp_state.p_x = v;
 		break;
 	case WSCONS_EVENT_MOUSE_ABSOLUTE_Y:
 		v -= cc->miny;
 		v *= lv_disp_get_ver_res(disp);
 		v /= cc->maxy - cc->miny;
-		wp->wp_y = v;
+		wp->wp_state.p_y = v;
 		break;
 
 	case WSCONS_EVENT_MOUSE_DELTA_X:
-		v += wp->wp_x;
+		v += wp->wp_state.p_x;
 		if (v < 0)
 			v = 0;
 		if (v >= lv_disp_get_hor_res(disp))
 			v = lv_disp_get_hor_res(disp) - 1;
-		wp->wp_x = v;
+		wp->wp_state.p_x = v;
 		break;
 	case WSCONS_EVENT_MOUSE_DELTA_Y:
-		v = wp->wp_y - v;
+		v = wp->wp_state.p_y - v;
 		if (v < 0)
 			v = 0;
 		if (v >= lv_disp_get_ver_res(disp))
 			v = lv_disp_get_ver_res(disp) - 1;
-		wp->wp_y = v;
+		wp->wp_state.p_y = v;
 		break;
 	case WSCONS_EVENT_MOUSE_UP:
 		if (v != 0)
 			return;
-		wp->wp_pressed = 0;
+		wp->wp_state.p_pressed = 0;
 		break;
 	case WSCONS_EVENT_MOUSE_DOWN:
 		if (v != 0)
 			return;
-		wp->wp_pressed = 1;
+		wp->wp_state.p_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
 		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+		wp->wp_state_synced = wp->wp_state;
 
 		if (sc->sc_idle) {
 			/* wake the display up as soon as anything happens */
 			wslv_svideo(sc, 1);
 
 			/* only wake up input after the touch is released */
-			if (wp->wp_pressed == 0)
+			if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL ||
+			    wp->wp_state.p_pressed == 0)
 				wslv_wake(sc);
 
 			return;
@@ -541,10 +547,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 
 		pe = malloc(sizeof(*pe));
 		if (pe != NULL) {
-			pe->pe_x = wp->wp_x;
-			pe->pe_y = wp->wp_y;
-			pe->pe_pressed = wp->wp_pressed;
-
+			pe->pe_state = wp->wp_state_synced;
 			TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
 		}
 
@@ -581,27 +584,22 @@ static void
 wslv_pointer_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
 	struct wslv_pointer *wp = drv->user_data;
+	struct wslv_pointer_state *p = &wp->wp_state_synced;
 	struct wslv_pointer_event *pe;
-	lv_indev_state_t state;
 
 	pe = TAILQ_FIRST(&wp->wp_events);
-	if (pe == NULL) {
-		data->point.x = wp->wp_x;
-		data->point.y = wp->wp_y;
-		data->state = wp->wp_pressed ?
-		    LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
-		return;
+	if (pe != NULL) {
+		p = &pe->pe_state;
+		TAILQ_REMOVE(&wp->wp_events, pe, pe_entry);
 	}
 
-	data->point.x = pe->pe_x;
-	data->point.y = pe->pe_y;
-	data->state = pe->pe_pressed ?
+	data->point.x = p->p_x;
+	data->point.y = p->p_y;
+	data->state = p->p_pressed ?
 	    LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
-
-	TAILQ_REMOVE(&wp->wp_events, pe, pe_entry);
-	free(pe);
-
 	data->continue_reading = !TAILQ_EMPTY(&wp->wp_events);
+
+	free(pe);
 }
 
 static void
@@ -609,8 +607,8 @@ wslv_pointer_idle(lv_indev_drv_t *drv, lv_indev_data_t *data)
 {
 	struct wslv_pointer *wp = drv->user_data;
 
-	data->point.x = wp->wp_x;
-	data->point.y = wp->wp_y;
+	data->point.x = wp->wp_state_synced.p_x;
+	data->point.y = wp->wp_state_synced.p_y;
 	data->state = LV_INDEV_STATE_RELEASED;
 	data->continue_reading = 0;
 }
@@ -620,17 +618,16 @@ wslv_pointer_set(struct wslv_softc *sc)
 {
 	struct wslv_pointer *wp;
 	int fd;
-	u_int type;
 
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry) {
 		fd = open(wp->wp_devname, O_RDWR|O_NONBLOCK);
 		if (fd == -1)
 			err(1, "pointer %s", wp->wp_devname);
 
-		if (ioctl(fd, WSMOUSEIO_GTYPE, &type) == -1)
+		if (ioctl(fd, WSMOUSEIO_GTYPE, &wp->wp_ws_type) == -1)
 			err(1, "get pointer %s type", wp->wp_devname);
 
-		if (type == WSMOUSE_TYPE_TPANEL) {
+		if (wp->wp_ws_type == WSMOUSE_TYPE_TPANEL) {
 			if (ioctl(fd, WSMOUSEIO_GCALIBCOORDS,
 			    &wp->wp_ws_calib) == -1) {
 				err(1, "get pointer %s calibration coordinates",
@@ -649,7 +646,7 @@ wslv_pointer_set(struct wslv_softc *sc)
 
 		wp->wp_lv_indev = lv_indev_drv_register(&wp->wp_lv_indev_drv);
 
-		if (type != WSMOUSE_TYPE_TPANEL) {
+		if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL) {
 			lv_indev_set_cursor(wp->wp_lv_indev, sc->sc_lv_cursor);
 		}
 
