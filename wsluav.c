@@ -355,6 +355,28 @@ wsluav_cmnd(struct wslv_softc *sc, const char *topic, size_t topic_len,
 	lua_pop(L, lua_gettop(L));
 }
 
+void
+wsluav_clocktick(struct wslv_softc *sc)
+{
+	lua_State *L;
+	int rv;
+
+	if (lua_ctx == NULL)
+		return;
+
+	L = lua_ctx->L;
+
+	lua_getglobal(L, "clocktick");
+	if (!lua_isfunction(L, -1))
+		return;
+
+	rv = lua_pcall(L, 0, 0, 0);
+	if (rv != 0)
+		warnx("lua pcall clocktick %s", lua_tostring(L, -1));
+
+	lua_pop(L, lua_gettop(L));
+}
+
 static int
 wsluav_in_cmnd(lua_State *L)
 {

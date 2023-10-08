@@ -28,5 +28,6 @@ void	wslv_tele(struct wslv_softc *,
 
 void	wsluav_cmnd(struct wslv_softc *,
 	    const char *, size_t, const char *, size_t);
+void	wsluav_clocktick(struct wslv_softc *);
 
 #endif /* _WSLV_LUAVGL_H_ */

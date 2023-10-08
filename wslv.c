@@ -177,6 +177,8 @@ struct wslv_softc {
 	struct event			 sc_mqtt_ev_to;
 
 	struct event			 sc_mqtt_tele_period;
+
+	struct event			 sc_clocktick;
 };
 
 struct wslv_softc _wslv = {
@@ -202,6 +204,7 @@ static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
 static void		wslv_idle(int, short, void *);
 static void		wslv_wake(struct wslv_softc *);
+static void		wslv_clocktick(int, short, void *);
 
 static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
 			    lv_color_t *);
@@ -410,6 +413,9 @@ main(int argc, char *argv[])
 	//lv_demo_widgets();
 	//lv_demo_keypad_encoder();
 	//lv_demo_benchmark();
+
+	evtimer_set(&sc->sc_clocktick, wslv_clocktick, sc);
+	wslv_clocktick(0, 0, sc);
 
 	event_dispatch();
 
@@ -683,6 +689,17 @@ wslv_tick(int nil, short events, void *arg)
 	evtimer_add(&sc->sc_tick, &rate);
 
 	lv_timer_handler();
+}
+
+static void
+wslv_clocktick(int nil, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+	static const struct timeval rate = { 1, 0 };
+
+	evtimer_add(&sc->sc_clocktick, &rate);
+
+	wsluav_clocktick(sc);
 }
 
 static void
