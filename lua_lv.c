@@ -307,7 +307,7 @@ lua_lv_event_cb(lv_event_t *e)
 
 	lua_pushinteger(L, event);
 	lua_rawget(L, -2);
-	if (lua_istable(L, -1)) 
+	if (lua_istable(L, -1))
 		lua_lv_event_cb_pcall(L, e);
 	lua_pop(L, 1);
 
