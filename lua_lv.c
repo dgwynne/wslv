@@ -244,6 +244,159 @@ lua_lv_switch_create(lua_State *L)
 	return (lua_lv_obj_create_udata(L, lv_switch_create));
 }
 
+static void
+lua_lv_event_cb_pcall(lua_State *L, lv_event_t *e)
+{
+	lv_event_code_t event = lv_event_get_code(e);
+
+	/* event table is at top, lobj at top - 2 */
+	int top = lua_gettop(L);
+	int ret;
+
+	lua_rawgeti(L, top, 1); /* fn for pcall */
+	lua_pushvalue(L, top - 2);
+
+	lua_newtable(L); /* event data */
+
+	lua_pushliteral(L, "code");
+	lua_pushinteger(L, event);
+	lua_rawset(L, -3);
+
+	lua_pushliteral(L, "data");
+	lua_rawgeti(L, top, 2); /* this might be nil */
+	lua_rawset(L, -3);
+
+	ret = lua_pcall(L, 2, 0, 0);
+	switch (ret) {
+	case 0:
+		break;
+	case LUA_ERRRUN:
+		LVDPRINTF("callback: %s", lua_tostring(L, -1));
+		break;
+	case LUA_ERRMEM:
+		LVDPRINTF("callback: memory error");
+		break;
+	case LUA_ERRERR:
+		LVDPRINTF("callback: error error");
+		break;
+	default:
+		LVDPRINTF("callback: unknown error %d", ret);
+		break;
+	}
+
+	lua_settop(L, top);
+}
+
+static void
+lua_lv_event_cb(lv_event_t *e)
+{
+	lua_State *L = lv_event_get_user_data(e);
+	lv_obj_t *obj = lv_event_get_current_target(e);
+	lv_event_code_t event = lv_event_get_code(e);
+	struct lua_lv_obj *lobj;
+
+	int top = lua_gettop(L);
+
+	lua_lv_obj_udata(L, obj);
+	lobj = luaL_checkudata(L, -1, lua_lv_obj_type);
+
+	lua_pushvalue(L, -1);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+	if (!lua_istable(L, -1))
+		goto pop;
+
+	lua_pushinteger(L, event);
+	lua_rawget(L, -2);
+	if (lua_istable(L, -1)) 
+		lua_lv_event_cb_pcall(L, e);
+	lua_pop(L, 1);
+
+	lua_pushinteger(L, LV_EVENT_ALL);
+	lua_rawget(L, -2);
+	if (lua_istable(L, -1))
+		lua_lv_event_cb_pcall(L, e);
+	/* lua_pop(L, 1); - going to pop anyway */
+
+pop:
+	lua_settop(L, top);
+}
+
+static int
+lua_lv_obj_add_event_cb(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_event_code_t event = luaL_checkinteger(L, 2);
+	int add = 0;
+
+	luaL_argcheck(L, lua_isfunction(L, 3), 3, "callback function required");
+
+	lua_pushvalue(L, 1);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+
+		lua_pushvalue(L, 1);
+		lua_newtable(L);
+
+		add = 1;
+	} else if (!lua_istable(L, -1))
+		return luaL_error(L, "event table is not a table");
+
+	lua_pushinteger(L, event);
+
+	/* { fn, arg } */
+	lua_newtable(L);
+
+	lua_pushvalue(L, 3);
+	lua_rawseti(L, -2, 1);
+
+	if (!lua_isnoneornil(L, 4)) {
+		lua_pushvalue(L, 4);
+		lua_rawseti(L, -2, 2);
+	}
+
+	lua_rawset(L, -3);
+
+	if (add) {
+		lua_rawset(L, LUA_REGISTRYINDEX);
+		lv_obj_add_event_cb(obj, lua_lv_event_cb, LV_EVENT_ALL, L);
+	}
+
+	return (0);
+}
+
+static int
+lua_lv_obj_del_event_cb(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_event_code_t event = luaL_checkinteger(L, 2);
+
+	lua_pushvalue(L, 1);
+	lua_rawget(L, LUA_REGISTRYINDEX);
+	if (lua_isnil(L, -1)) {
+		LVDPRINTF("obj:%p, no event found", obj);
+		/* no event table found */
+		return (0);
+	} else if (!lua_istable(L, -1))
+		return luaL_error(L, "event table is not a table");
+
+	lua_pushinteger(L, event);
+	lua_pushnil(L);
+	lua_rawset(L, -3);
+
+	lua_pushnil(L);
+	if (!lua_next(L, -2)) {
+		LVDPRINTF("obj:%p, empty event table", obj);
+		lua_pushvalue(L, 1);
+		lua_pushnil(L);
+		lua_rawset(L, LUA_REGISTRYINDEX);
+
+		lv_obj_remove_event_cb_with_user_data(obj, lua_lv_event_cb, L);
+	}
+
+	return (0);
+}
+
 static int
 lua_lv_obj__gc(lua_State *L)
 {
@@ -256,6 +409,8 @@ lua_lv_obj__gc(lua_State *L)
 		lua_lv_obj_clr(L, obj);
 		lv_obj_remove_event_cb_with_user_data(obj,
 		    lua_lv_delete_cb, L);
+		lv_obj_remove_event_cb_with_user_data(obj,
+		    lua_lv_event_cb, L);
 
 		lobj->lv_obj = NULL;
 	}
@@ -269,8 +424,6 @@ lua_lv_obj__index(lua_State *L)
 	struct lua_lv_obj *lobj = luaL_checkudata(L, 1, lua_lv_obj_type);
 	const char *key = lua_tostring(L, 2);
 	lv_obj_t *obj = lobj->lv_obj;
-
-	LVDPRINTF("obj:%p, lobj:%p, key:%s", obj, lobj, key);
 
 	if (obj != NULL) {
 		const lv_obj_class_t *c;
@@ -541,159 +694,6 @@ lua_lv_obj_event_send(lua_State *L)
 
 	lua_pushboolean(L, res == LV_RES_OK);
 	return (1);
-}
-
-static void
-lua_lv_event_cb_pcall(lua_State *L, lv_event_t *e)
-{
-	lv_event_code_t event = lv_event_get_code(e);
-
-	/* event table is at top, lobj at top - 2 */
-	int top = lua_gettop(L);
-	int ret;
-
-	lua_rawgeti(L, top, 1); /* fn for pcall */
-	lua_pushvalue(L, top - 2);
-
-	lua_newtable(L); /* event data */
-
-	lua_pushliteral(L, "code");
-	lua_pushinteger(L, event);
-	lua_rawset(L, -3);
-
-	lua_pushliteral(L, "data");
-	lua_rawgeti(L, top, 2); /* this might be nil */
-	lua_rawset(L, -3);
-
-	ret = lua_pcall(L, 2, 0, 0);
-	switch (ret) {
-	case 0:
-		break;
-	case LUA_ERRRUN:
-		LVDPRINTF("callback: %s", lua_tostring(L, -1));
-		break;
-	case LUA_ERRMEM:
-		LVDPRINTF("callback: memory error");
-		break;
-	case LUA_ERRERR:
-		LVDPRINTF("callback: error error");
-		break;
-	default:
-		LVDPRINTF("callback: unknown error %d", ret);
-		break;
-	}
-
-	lua_settop(L, top);
-}
-
-static void
-lua_lv_event_cb(lv_event_t *e)
-{
-	lua_State *L = lv_event_get_user_data(e);
-	lv_obj_t *obj = lv_event_get_current_target(e);
-	lv_event_code_t event = lv_event_get_code(e);
-	struct lua_lv_obj *lobj;
-
-	int top = lua_gettop(L);
-
-	lua_lv_obj_udata(L, obj);
-	lobj = luaL_checkudata(L, -1, lua_lv_obj_type);
-
-	lua_pushvalue(L, -1);
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (!lua_istable(L, -1))
-		goto pop;
-
-	lua_pushinteger(L, event);
-	lua_rawget(L, -2);
-	if (lua_istable(L, -1)) 
-		lua_lv_event_cb_pcall(L, e);
-	lua_pop(L, 1);
-
-	lua_pushinteger(L, LV_EVENT_ALL);
-	lua_rawget(L, -2);
-	if (lua_istable(L, -1))
-		lua_lv_event_cb_pcall(L, e);
-	/* lua_pop(L, 1); - going to pop anyway */
-
-pop:
-	lua_settop(L, top);
-}
-
-static int
-lua_lv_obj_add_event_cb(lua_State *L)
-{
-	lv_obj_t *obj = lua_lv_check_obj(L, 1);
-	lv_event_code_t event = luaL_checkinteger(L, 2);
-	int add = 0;
-
-	luaL_argcheck(L, lua_isfunction(L, 3), 3, "callback function required");
-
-	lua_pushvalue(L, 1);
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (lua_isnil(L, -1)) {
-		lua_pop(L, 1);
-
-		lua_pushvalue(L, 1);
-		lua_newtable(L);
-
-		add = 1;
-	} else if (!lua_istable(L, -1))
-		return luaL_error(L, "event table is not a table");
-
-	lua_pushinteger(L, event);
-
-	/* { fn, arg } */
-	lua_newtable(L);
-
-	lua_pushvalue(L, 3);
-	lua_rawseti(L, -2, 1);
-
-	if (!lua_isnoneornil(L, 4)) {
-		lua_pushvalue(L, 4);
-		lua_rawseti(L, -2, 2);
-	}
-
-	lua_rawset(L, -3);
-
-	if (add) {
-		lua_rawset(L, LUA_REGISTRYINDEX);
-		lv_obj_add_event_cb(obj, lua_lv_event_cb, LV_EVENT_ALL, L);
-	}
-
-	return (0);
-}
-
-static int
-lua_lv_obj_del_event_cb(lua_State *L)
-{
-	lv_obj_t *obj = lua_lv_check_obj(L, 1);
-	lv_event_code_t event = luaL_checkinteger(L, 2);
-
-	lua_pushvalue(L, 1);
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (lua_isnil(L, -1)) {
-		LVDPRINTF("obj:%p, no event found", obj);
-		/* no event table found */
-		return (0);
-	} else if (!lua_istable(L, -1))
-		return luaL_error(L, "event table is not a table");
-
-	lua_pushinteger(L, event);
-	lua_pushnil(L);
-	lua_rawset(L, -3);
-
-	lua_pushnil(L);
-	if (!lua_next(L, -2)) {
-		LVDPRINTF("obj:%p, empty event table", obj);
-		lua_pushvalue(L, 1);
-		lua_pushnil(L);
-		lua_rawset(L, LUA_REGISTRYINDEX);
-
-		lv_obj_remove_event_cb_with_user_data(obj, lua_lv_event_cb, L);
-	}
-
-	return (0);
 }
 
 static int
