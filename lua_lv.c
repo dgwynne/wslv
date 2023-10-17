@@ -815,6 +815,18 @@ lua_lv_obj_set_grid_cell(lua_State *L)
 }
 
 static int
+lua_lv_obj_set_grid_align(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	int col_align = luaL_checkinteger(L, 2);
+	int row_align = luaL_checkinteger(L, 3);
+
+	lv_obj_set_grid_align(obj, col_align, row_align);
+
+	return (0);
+}
+
+static int
 lua_lv_obj_state(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
@@ -954,6 +966,7 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 
 	{ "set_grid_array",	lua_lv_obj_set_grid_array },
 	{ "set_grid_cell",	lua_lv_obj_set_grid_cell },
+	{ "set_grid_align",	lua_lv_obj_set_grid_align },
 
 	{ "event_send",		lua_lv_obj_event_send },
 	{ "add_event_cb",	lua_lv_obj_add_event_cb },
