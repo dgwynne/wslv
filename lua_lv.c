@@ -797,19 +797,41 @@ static int
 lua_lv_obj_set_grid_cell(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	int col_align = LV_GRID_ALIGN_START;
+	int row_align = LV_GRID_ALIGN_START;
+	int col_span = 1;
+	int row_span = 1;
+	int col_idx, row_idx;
 	int col, row;
 
-	if (lua_gettop(L) != 3)
-		return luaL_error(L, "invalid number of arguments");
+	switch (lua_gettop(L)) {
+	case 7:
+		col_align = luaL_checkinteger(L, 2);
+		col_idx = 3;
+		col_span = luaL_checkinteger(L, 4);
+		luaL_argcheck(L, col_span >= 1, 4, "col span must be >= 1");
 
-	col = luaL_checkinteger(L, 2);
-	luaL_argcheck(L, col >= 1, 2, "must be >= 1");
-	row = luaL_checkinteger(L, 3);
-	luaL_argcheck(L, row >= 1, 3, "must be >= 1");
+		row_align = luaL_checkinteger(L, 5);
+		row_idx = 6;
+		row_span = luaL_checkinteger(L, 7);
+		luaL_argcheck(L, row_span >= 1, 7, "row span must be >= 1");
+		break;
+	case 3:
+		col_idx = 2;
+		row_idx = 3;
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	col = luaL_checkinteger(L, col_idx);
+	luaL_argcheck(L, col >= 1, col_idx, "col must be >= 1");
+	row = luaL_checkinteger(L, row_idx);
+	luaL_argcheck(L, row >= 1, row_idx, "row must be >= 1");
 
 	lv_obj_set_grid_cell(obj,
-	    LV_GRID_ALIGN_START, col - 1, 1,
-	    LV_GRID_ALIGN_START, row - 1, 1);
+	    col_align, col - 1, col_span,
+	    row_align, row - 1, row_span);
 
 	return (0);
 }
@@ -1515,6 +1537,11 @@ static const struct lua_lv_constant lua_lv_grid_align_t[] = {
 	{ "SPACE_BETWEEN",	LV_GRID_ALIGN_SPACE_BETWEEN },
 };
 
+static const struct lua_lv_constant lua_lv_misc_constants[] = {
+	{ "SIZE_CONTENT",	LV_SIZE_CONTENT },
+	{ "RADIUS_CIRCLE",	LV_RADIUS_CIRCLE },
+};
+
 static const struct lua_lv_constants lua_lv_constants_table[] = {
 	LUA_LV_CONSTANTS("STATE",	lua_lv_state_t),
 	LUA_LV_CONSTANTS("PART",	lua_lv_part_t),
@@ -1550,6 +1577,20 @@ lua_lv_constants_new(lua_State *L)
 }
 
 static void
+lua_lv_constants_push(lua_State *L,
+    const struct lua_lv_constant *kvs, size_t nkvs)
+{
+	size_t i;
+
+	for (i = 0; i < nkvs; i++) {
+		const struct lua_lv_constant *kv = &kvs[i];
+		lua_pushstring(L, kv->k);
+		lua_pushinteger(L, kv->v);
+		lua_rawset(L, -3);
+	}
+}
+
+static void
 lua_lv_constants_set(lua_State *L)
 {
 	lua_rawset(L, -3); /* metatable["_index"] = { ... } */
@@ -1568,12 +1609,7 @@ lua_lv_constants(lua_State *L)
 		lua_pushstring(L, c->name);
 
 		lua_lv_constants_new(L);
-		for (i = 0; i < c->nkvs; i++) {
-			const struct lua_lv_constant *kv = &c->kvs[i];
-			lua_pushstring(L, kv->k);
-			lua_pushinteger(L, kv->v);
-			lua_rawset(L, -3);
-		}
+		lua_lv_constants_push(L, c->kvs, c->nkvs);
 		lua_lv_constants_set(L);
 
 		lua_rawset(L, -3); /* lv[c->name] = { blah } */
@@ -1594,9 +1630,8 @@ lua_lv_constants(lua_State *L)
 	lua_rawset(L, -3); /* lv["GRID"] = { blah } */
 
 	/* grumble grumble */
-	lua_pushliteral(L, "SIZE_CONTENT");
-	lua_pushinteger(L, LV_SIZE_CONTENT);
-	lua_rawset(L, -3);
+	lua_lv_constants_push(L,
+	    lua_lv_misc_constants, nitems(lua_lv_misc_constants));
 }
 
 static const luaL_Reg lua_lv[] = {
