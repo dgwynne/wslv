@@ -59,6 +59,13 @@ struct lua_lv_constants {
 #define LUA_LV_OBJ_STR		"'" LUA_LV_OBJ_T "'"
 static const char lua_lv_obj_type[] = LUA_LV_OBJ_T;
 
+/*
+ * if we give memory to an obj, we put a table in the registry to track it
+ */
+#define LUA_LV_OBJ_REF_LOBJ		1 /* this keeps the lobj alive */
+#define LUA_LV_OBJ_REF_GRID_COL_DSC	2
+#define LUA_LV_OBJ_REF_GRID_ROW_DSC	3
+
 static void
 lua_lv_get_obj_table(lua_State *L)
 {
@@ -120,6 +127,10 @@ lua_lv_delete_cb(lv_event_t *e)
 	lua_pushvalue(L, -1);
 	lua_pushnil(L);
 	lua_rawset(L, LUA_REGISTRYINDEX);
+
+	/* release the table */
+	lua_pushnil(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, obj);
 
 	lobj->lv_obj = NULL;
 	lua_lv_obj_clr(L, obj);
@@ -706,6 +717,103 @@ lua_lv_obj_update_layout(lua_State *L)
 	return (0);
 }
 
+static lv_coord_t *
+lua_lv_obj_set_grid_array_dsc(lua_State *L, int idx)
+{
+	lv_coord_t *dsc = NULL;
+	int len;
+	int i;
+
+	if (lua_isinteger(L, idx)) {
+		len = lua_tointeger(L, idx);
+		luaL_argcheck(L, len >= 1, idx, "must be >= 1");
+
+		dsc = lua_newuserdata(L, sizeof(*dsc) * (len + 1));
+		for (i = 0; i < len; i++)
+			dsc[i] = LV_GRID_FR(1);
+
+	} else if (lua_istable(L, idx)) {
+		len = lua_rawlen(L, idx);
+		luaL_argcheck(L, len >= 1, idx, "table length must be >= 1");
+
+		dsc = lua_newuserdata(L, sizeof(*dsc) * (len + 1));
+		for (i = 0; i < len; i++) {
+			int k = i + 1;
+
+			lua_rawgeti(L, idx, k);
+			if (!lua_isinteger(L, -1)) {
+				luaL_error(L, "key %d is not an integer", k);
+				/* NOTREACHED */
+				return (NULL);
+			}
+
+			dsc[i] = lua_tointeger(L, -1);
+			lua_pop(L, 1);
+		}
+	} else {
+		luaL_error(L, "invalid type");
+		/* NOTREACHED */
+		return (NULL);
+	}
+
+	dsc[len] = LV_GRID_TEMPLATE_LAST;
+	return (dsc);
+}
+
+static int
+lua_lv_obj_set_grid_array(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_coord_t *col_dsc;
+	lv_coord_t *row_dsc;
+
+	if (lua_gettop(L) != 3)
+		return luaL_error(L, "invalid number of arguments");
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
+	if (lua_isnil(L, -1)) {
+		lua_pop(L, 1);
+		lua_newtable(L);
+
+		lua_pushvalue(L, 1);
+		lua_rawseti(L, -2, LUA_LV_OBJ_REF_LOBJ);
+	}
+
+	col_dsc = lua_lv_obj_set_grid_array_dsc(L, 2);
+	lua_rawseti(L, -2, LUA_LV_OBJ_REF_GRID_COL_DSC);
+
+	row_dsc = lua_lv_obj_set_grid_array_dsc(L, 3);
+	lua_rawseti(L, -2, LUA_LV_OBJ_REF_GRID_ROW_DSC);
+
+	lv_obj_set_grid_dsc_array(obj, col_dsc, row_dsc);
+
+	/* doing this again doesn't hurt */
+	lua_rawsetp(L, LUA_REGISTRYINDEX, obj);
+
+	return (0);
+}
+
+static int
+lua_lv_obj_set_grid_cell(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	int col, row;
+
+	if (lua_gettop(L) != 3)
+		return luaL_error(L, "invalid number of arguments");
+
+	col = luaL_checkinteger(L, 2);
+	luaL_argcheck(L, col >= 1, 2, "must be >= 1");
+	row = luaL_checkinteger(L, 3);
+	luaL_argcheck(L, row >= 1, 3, "must be >= 1");
+
+	lv_obj_set_grid_cell(obj,
+	    LV_GRID_ALIGN_START, col - 1, 1,
+	    LV_GRID_ALIGN_START, row - 1, 1);
+
+	return (0);
+}
+
 static int
 lua_lv_obj_state(lua_State *L)
 {
@@ -811,6 +919,13 @@ lua_lv_pct(lua_State *L)
 	return (1);
 }
 
+static int
+lua_lv_grid_fr(lua_State *L)
+{
+	lua_pushinteger(L, lv_grid_fr(luaL_checkinteger(L, 1)));
+	return (1);
+}
+
 /*
  * lua_lv_obj metatable methods
  */
@@ -836,6 +951,9 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	{ "align",		lua_lv_obj_align },
 	{ "align_to",		lua_lv_obj_align_to },
 	{ "update_layout",	lua_lv_obj_update_layout },
+
+	{ "set_grid_array",	lua_lv_obj_set_grid_array },
+	{ "set_grid_cell",	lua_lv_obj_set_grid_cell },
 
 	{ "event_send",		lua_lv_obj_event_send },
 	{ "add_event_cb",	lua_lv_obj_add_event_cb },
@@ -1374,6 +1492,16 @@ static const struct lua_lv_constant lua_lv_event_t[] = {
 	{ "PREPROCESS",		LV_EVENT_PREPROCESS },
 };
 
+static const struct lua_lv_constant lua_lv_grid_align_t[] = {
+	{ "START",		LV_GRID_ALIGN_START },
+	{ "CENTER",		LV_GRID_ALIGN_CENTER },
+	{ "END",		LV_GRID_ALIGN_END },
+	{ "STRETCH",		LV_GRID_ALIGN_STRETCH },
+	{ "SPACE_EVENLY",	LV_GRID_ALIGN_SPACE_EVENLY },
+	{ "SPACE_AROUND",	LV_GRID_ALIGN_SPACE_AROUND },
+	{ "SPACE_BETWEEN",	LV_GRID_ALIGN_SPACE_BETWEEN },
+};
+
 static const struct lua_lv_constants lua_lv_constants_table[] = {
 	LUA_LV_CONSTANTS("STATE",	lua_lv_state_t),
 	LUA_LV_CONSTANTS("PART",	lua_lv_part_t),
@@ -1381,6 +1509,7 @@ static const struct lua_lv_constants lua_lv_constants_table[] = {
 	LUA_LV_CONSTANTS("ALIGN",	lua_lv_align_t),
 	LUA_LV_CONSTANTS("DIR",		lua_lv_dir_t),
 	LUA_LV_CONSTANTS("EVENT",	lua_lv_event_t),
+	LUA_LV_CONSTANTS("GRID_ALIGN",	lua_lv_grid_align_t),
 
 	LUA_LV_CONSTANTS("BAR_MODE",	lua_lv_bar_mode_t),
 	LUA_LV_CONSTANTS("LABEL_LONG",	lua_lv_label_long_mode_t),
@@ -1394,6 +1523,27 @@ lua_lv_constant__newindex(lua_State *L)
 }
 
 static void
+lua_lv_constants_new(lua_State *L)
+{
+	lua_newtable(L);
+	lua_newtable(L); /* metatable */
+
+	lua_pushliteral(L, "__newindex");
+	lua_pushcfunction(L, lua_lv_constant__newindex);
+	lua_rawset(L, -3);
+
+	lua_pushliteral(L, "__index");
+	lua_newtable(L);
+}
+
+static void
+lua_lv_constants_set(lua_State *L)
+{
+	lua_rawset(L, -3); /* metatable["_index"] = { ... } */
+	lua_setmetatable(L, -2);
+}
+
+static void
 lua_lv_constants(lua_State *L)
 {
 	size_t t;
@@ -1403,26 +1553,32 @@ lua_lv_constants(lua_State *L)
 		size_t i;
 
 		lua_pushstring(L, c->name);
-		lua_newtable(L); /* table for c->name */
-		lua_newtable(L); /* metatable */
 
-		lua_pushliteral(L, "__newindex");
-		lua_pushcfunction(L, lua_lv_constant__newindex);
-		lua_rawset(L, -3);
-
-		lua_pushliteral(L, "__index");
-		lua_newtable(L);
+		lua_lv_constants_new(L);
 		for (i = 0; i < c->nkvs; i++) {
 			const struct lua_lv_constant *kv = &c->kvs[i];
 			lua_pushstring(L, kv->k);
 			lua_pushinteger(L, kv->v);
 			lua_rawset(L, -3);
 		}
-		lua_rawset(L, -3); /* metatable["_index"] = kvs */
+		lua_lv_constants_set(L);
 
-		lua_setmetatable(L, -2);
 		lua_rawset(L, -3); /* lv[c->name] = { blah } */
 	}
+
+	lua_pushliteral(L, "GRID");
+	lua_lv_constants_new(L);
+
+	lua_pushliteral(L, "CONTENT");
+	lua_pushinteger(L, LV_GRID_CONTENT);
+	lua_rawset(L, -3);
+
+	lua_pushliteral(L, "FR");
+	lua_pushcfunction(L, lua_lv_grid_fr);
+	lua_rawset(L, -3);
+
+	lua_lv_constants_set(L);
+	lua_rawset(L, -3); /* lv["GRID"] = { blah } */
 
 	/* grumble grumble */
 	lua_pushliteral(L, "SIZE_CONTENT");
