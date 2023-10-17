@@ -961,6 +961,45 @@ lua_lv_grid_fr(lua_State *L)
 }
 
 /*
+ * style stuff
+ */
+
+static int
+lua_lv_obj_set_style(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_style_value_t v;
+	const char *propname;
+	int prop;
+	int selector = LV_PART_MAIN;
+
+	switch (lua_gettop(L)) {
+	case 4:
+		selector = luaL_checkinteger(L, 4);
+		/* FALLTHROUGH */
+	case 3:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	propname = lua_tostring(L, 2);
+	if (strcmp(propname, "radius") == 0)
+		prop = LV_STYLE_RADIUS;
+	else if (strcmp(propname, "anim_time") == 0)
+		prop = LV_STYLE_ANIM_TIME;
+	else
+		return luaL_error(L, "unknown style property");
+
+	memset(&v, 0, sizeof(v));
+	v.num = luaL_checkinteger(L, 3);
+
+	lv_obj_set_local_style_prop(obj, prop, v, selector);
+
+	return (0);
+}
+
+/*
  * lua_lv_obj metatable methods
  */
 
@@ -1001,6 +1040,8 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	/* these are convenience wrappers */
 	{ "checked",		lua_lv_obj_checked },
 	{ "disabled",		lua_lv_obj_disabled },
+
+	{ "set_style",		lua_lv_obj_set_style },
 
 	{ NULL,			NULL }
 };
