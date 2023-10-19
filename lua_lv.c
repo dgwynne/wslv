@@ -964,13 +964,85 @@ lua_lv_grid_fr(lua_State *L)
  * style stuff
  */
 
+struct lua_lv_style {
+	const char		*name;
+	lv_style_prop_t		 prop;
+	lv_style_value_t (*check)(lua_State *, int);
+};
+
+static lv_style_value_t
+lua_lv_style_num(lua_State *L, int idx)
+{
+	lv_style_value_t v = {
+		.num = luaL_checkinteger(L, idx)
+	};
+
+	return v;
+}
+
+static lv_style_value_t
+lua_lv_style_bool(lua_State *L, int idx)
+{
+	lv_style_value_t v = {
+		.num = lua_toboolean(L, idx)
+	};
+
+	return v;
+}
+
+static const struct lua_lv_style lua_lv_styles[] = {
+	{ "width",		LV_STYLE_WIDTH,		lua_lv_style_num },
+	{ "w",			LV_STYLE_WIDTH,		lua_lv_style_num },
+	{ "min_width",		LV_STYLE_MIN_WIDTH,	lua_lv_style_num },
+	{ "min_w",		LV_STYLE_MIN_WIDTH,	lua_lv_style_num },
+	{ "max_width",		LV_STYLE_MAX_WIDTH,	lua_lv_style_num },
+	{ "max_w",		LV_STYLE_MAX_WIDTH,	lua_lv_style_num },
+	{ "height",		LV_STYLE_HEIGHT,	lua_lv_style_num },
+	{ "h",			LV_STYLE_HEIGHT,	lua_lv_style_num },
+	{ "min_height",		LV_STYLE_MIN_HEIGHT,	lua_lv_style_num },
+	{ "min_h",		LV_STYLE_MIN_HEIGHT,	lua_lv_style_num },
+	{ "max_height",		LV_STYLE_MAX_HEIGHT,	lua_lv_style_num },
+	{ "max_h",		LV_STYLE_MAX_HEIGHT,	lua_lv_style_num },
+	{ "x",			LV_STYLE_X,		lua_lv_style_num },
+	{ "y",			LV_STYLE_Y,		lua_lv_style_num },
+	{ "align",		LV_STYLE_ALIGN,		lua_lv_style_num },
+	{ "layout",		LV_STYLE_LAYOUT,	lua_lv_style_num },
+	{ "radius",		LV_STYLE_RADIUS,	lua_lv_style_num },
+
+	{ "pad_top",		LV_STYLE_PAD_TOP,	lua_lv_style_num },
+	{ "pad_bottom",		LV_STYLE_PAD_BOTTOM,	lua_lv_style_num },
+	{ "pad_left",		LV_STYLE_PAD_LEFT,	lua_lv_style_num },
+	{ "pad_right",		LV_STYLE_PAD_RIGHT,	lua_lv_style_num },
+	{ "pad_row",		LV_STYLE_PAD_ROW,	lua_lv_style_num },
+	{ "pad_column",		LV_STYLE_PAD_COLUMN,	lua_lv_style_num },
+	{ "base_dir",		LV_STYLE_BASE_DIR,	lua_lv_style_num },
+	{ "clip_corner",	LV_STYLE_CLIP_CORNER,	lua_lv_style_bool },
+
+	{ "anim_time",		LV_STYLE_ANIM_TIME,	lua_lv_style_num },
+};
+
+static void
+lua_lv_styles_init(lua_State *L)
+{
+	size_t i;
+
+	lua_newtable(L);
+	for (i = 0; i < nitems(lua_lv_styles); i++) {
+		const struct lua_lv_style *s = &lua_lv_styles[i];
+
+		lua_pushstring(L, s->name);
+		lua_pushlightuserdata(L, (void *)s);
+		lua_settable(L, -3);
+	}
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+}
+
 static int
 lua_lv_obj_set_style(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	const struct lua_lv_style *s;
 	lv_style_value_t v;
-	const char *propname;
-	int prop;
 	int selector = LV_PART_MAIN;
 
 	switch (lua_gettop(L)) {
@@ -983,18 +1055,16 @@ lua_lv_obj_set_style(lua_State *L)
 		return luaL_error(L, "invalid number of arguments");
 	}
 
-	propname = lua_tostring(L, 2);
-	if (strcmp(propname, "radius") == 0)
-		prop = LV_STYLE_RADIUS;
-	else if (strcmp(propname, "anim_time") == 0)
-		prop = LV_STYLE_ANIM_TIME;
-	else
-		return luaL_error(L, "unknown style property");
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+	lua_pushvalue(L, 2);
+	lua_rawget(L, -2);
 
-	memset(&v, 0, sizeof(v));
-	v.num = luaL_checkinteger(L, 3);
+	s = lua_touserdata(L, -1);
+	luaL_argcheck(L, s != NULL, 2, "unknown style property");
 
-	lv_obj_set_local_style_prop(obj, prop, v, selector);
+	v = s->check(L, 3);
+
+	lv_obj_set_local_style_prop(obj, s->prop, v, selector);
 
 	return (0);
 }
@@ -1730,6 +1800,8 @@ luaopen_lv(lua_State *L)
 		lua_pushliteral(L, "nope");
 		lua_settable(L, -3);
 	}
+
+	lua_lv_styles_init(L);
 
 	luaL_newlib(L, lua_lv);
 	lua_lv_constants(L);
