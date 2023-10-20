@@ -188,6 +188,20 @@ lua_lv_scr_act(lua_State *L)
 }
 
 static int
+lua_lv_hor_res(lua_State *L)
+{
+	lua_pushinteger(L, LV_HOR_RES);
+	return (1);
+}
+
+static int
+lua_lv_ver_res(lua_State *L)
+{
+	lua_pushinteger(L, LV_VER_RES);
+	return (1);
+}
+
+static int
 lua_lv_obj_create_udata(lua_State *L, lv_obj_t *(*lv_create)(lv_obj_t *))
 {
 	lv_obj_t *parent = NULL;
@@ -2073,6 +2087,8 @@ static const luaL_Reg lua_lv[] = {
 	{ "switch",		lua_lv_switch_create },
 
 	{ "scr_act",		lua_lv_scr_act },
+	{ "hor_res",		lua_lv_hor_res },
+	{ "ver_res",		lua_lv_ver_res },
 
 	{ "pct",		lua_lv_pct },
 	{ "color",		lua_lv_color },
@@ -2080,10 +2096,27 @@ static const luaL_Reg lua_lv[] = {
 	{ NULL,			NULL }
 };
 
+static const char lua_lv_state[] = "lua_lv";
+
+static int
+lua_lv_state__gc(lua_State *L)
+{
+	struct lua_lv_obj *lscr = luaL_checkudata(L, -1, lua_lv_state);
+	lv_obj_t *scr;
+
+	scr = lv_scr_act();
+	lv_scr_load(lscr->lv_obj);
+	//lv_obj_del(scr);
+
+	return (0);
+}
+
 int
 luaopen_lv(lua_State *L)
 {
 	size_t i;
+	struct lua_lv_obj *lscr;
+	lv_obj_t *scr;
 
 	lua_newtable(L); /* new lua_lv_obj_type table */
 	lua_newtable(L); /* new metatable */
@@ -2124,6 +2157,28 @@ luaopen_lv(lua_State *L)
 
 	luaL_newlib(L, lua_lv);
 	lua_lv_constants(L);
+
+	if (luaL_newmetatable(L, lua_lv_state)) {
+		lua_pushliteral(L, "__gc");
+		lua_pushcfunction(L, lua_lv_state__gc);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__metatable");
+		lua_pushliteral(L, "nope");
+		lua_settable(L, -3);
+
+		lscr = lua_newuserdata(L, sizeof(*lscr));
+		lscr->lv_obj = lv_scr_act();
+		luaL_setmetatable(L, lua_lv_state);
+
+		/* keep the ref */
+		lua_rawsetp(L, LUA_REGISTRYINDEX, lscr->lv_obj);
+
+		scr = lv_obj_create(NULL);
+		lv_scr_load(scr);
+
+		lua_pop(L, 1);
+	}
 
 	return (1);
 }
