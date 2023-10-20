@@ -1013,10 +1013,10 @@ lua_lv_palette_get(lua_State *L, int idx)
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_palette_t);
 	lua_pushvalue(L, idx);
-	lua_rawget(L, -1);
+	lua_rawget(L, -2);
 	if (lua_isinteger(L, -1))
 		rv = lua_tointeger(L, -1);
-	lua_pop(L, 1);
+	lua_pop(L, 2);
 
 	return (rv);
 }
@@ -1035,9 +1035,9 @@ lua_lv_hexdec(lua_State *L, int ch)
 	if (ch >= '0' && ch <= '9')
 		return (ch - '0');
 	if (ch >= 'a' && ch <= 'f')
-		return (ch - 'a');
+		return (ch - 'a' + 10);
 	if (ch >= 'A' && ch <= 'F')
-		return (ch - 'A');
+		return (ch - 'A' + 10);
 
 	return luaL_error(L, "invalid hex digit");
 }
@@ -1050,11 +1050,11 @@ lua_lv_color_arg(lua_State *L, int idx)
 	const char *str;
 
 	if (lua_istable(L, idx)) {
-		lua_rawgeti(L, 1, 1);
+		lua_rawgeti(L, idx, 1);
 		r = lua_lv_checku8(L, -1);
-		lua_rawgeti(L, 1, 2);
+		lua_rawgeti(L, idx, 2);
 		g = lua_lv_checku8(L, -1);
-		lua_rawgeti(L, 1, 3);
+		lua_rawgeti(L, idx, 3);
 		b = lua_lv_checku8(L, -1);
 		lua_pop(L, 3);
 
@@ -1077,7 +1077,7 @@ lua_lv_color_arg(lua_State *L, int idx)
 	luaL_argcheck(L, str[0] == '#', idx, "hex strings start with #");
 
 	switch (strlen(str)) {
-	case '4':
+	case 4:
 		r = lua_lv_hexdec(L, str[1]);
 		g = lua_lv_hexdec(L, str[2]);
 		b = lua_lv_hexdec(L, str[3]);
@@ -1086,7 +1086,7 @@ lua_lv_color_arg(lua_State *L, int idx)
 		g |= g << 4;
 		b |= b << 4;
 		break;
-	case '7':
+	case 7:
 		r  = lua_lv_hexdec(L, str[1]) << 4;
 		r |= lua_lv_hexdec(L, str[2]);
 		g  = lua_lv_hexdec(L, str[3]) << 4;
@@ -1167,6 +1167,16 @@ lua_lv_style_bool(lua_State *L, int idx)
 	return v;
 }
 
+static lv_style_value_t
+lua_lv_style_color(lua_State *L, int idx)
+{
+	lv_style_value_t v = {
+		.color = lua_lv_color_arg(L, idx)
+	};
+
+	return (v);
+}
+
 static const struct lua_lv_style lua_lv_styles[] = {
 	{ "width",		LV_STYLE_WIDTH,		lua_lv_style_num },
 	{ "w",			LV_STYLE_WIDTH,		lua_lv_style_num },
@@ -1194,6 +1204,35 @@ static const struct lua_lv_style lua_lv_styles[] = {
 	{ "pad_column",		LV_STYLE_PAD_COLUMN,	lua_lv_style_num },
 	{ "base_dir",		LV_STYLE_BASE_DIR,	lua_lv_style_num },
 	{ "clip_corner",	LV_STYLE_CLIP_CORNER,	lua_lv_style_bool },
+
+	{ "bg_color",		LV_STYLE_BG_COLOR,	lua_lv_style_color },
+	{ "bg_opa",		LV_STYLE_BG_OPA,	lua_lv_style_num },
+	{ "bg_grad_color",	LV_STYLE_BG_GRAD_COLOR,	lua_lv_style_color },
+	{ "bg_grad_dir",	LV_STYLE_BG_GRAD_DIR,	lua_lv_style_num },
+	{ "bg_main_stop",	LV_STYLE_BG_MAIN_STOP,	lua_lv_style_num },
+	{ "bg_grad_stop",	LV_STYLE_BG_GRAD_STOP,	lua_lv_style_num },
+#if 0
+	{ "bg_grad",		LV_STYLE_BG_GRAD,	lua_lv_style_grad_dsc },
+	{ "bg_dither_mode",	LV_STYLE_BG_DITHER_MODE,
+							lua_lv_style_num },
+	{ "bg_img_src",		LV_STYLE_BG_IMG_SRC,	lua_lv_style_ },
+	{ "bg_img_opa",		LV_STYLE_BG_IMG_OPA,	lua_lv_style_num },
+	{ "bg_img_recolor",	LV_STYLE_BG_IMG_RECOLOR,
+							lua_lv_style_color },
+	{ "bg_img_recolor_opa",	LV_STYLE_BG_IMG_RECOLOR_OPA,
+							lua_lv_style_num },
+	{ "bg_img_tiled",	LV_STYLE_BG_IMG_TILED,	lua_lv_style_bool },
+#endif
+
+	{ "border_color",	LV_STYLE_BORDER_COLOR,	lua_lv_style_color },
+	{ "border_opa",		LV_STYLE_BORDER_OPA,	lua_lv_style_num },
+	{ "border_width",	LV_STYLE_BORDER_WIDTH,	lua_lv_style_num },
+	{ "border_side",	LV_STYLE_BORDER_SIDE,	lua_lv_style_num },
+	{ "border_post",	LV_STYLE_BORDER_POST,	lua_lv_style_bool },
+	{ "outline_width",	LV_STYLE_OUTLINE_WIDTH,	lua_lv_style_num },
+	{ "outline_color",	LV_STYLE_OUTLINE_COLOR,	lua_lv_style_color },
+	{ "outline_opa",	LV_STYLE_OUTLINE_OPA,	lua_lv_style_num },
+	{ "outline_pad",	LV_STYLE_OUTLINE_PAD,	lua_lv_style_num },
 
 	{ "anim_time",		LV_STYLE_ANIM_TIME,	lua_lv_style_num },
 };
@@ -1979,6 +2018,7 @@ luaopen_lv(lua_State *L)
 		lua_settable(L, -3);
 	}
 
+	lua_lv_palette_init(L);
 	lua_lv_styles_init(L);
 
 	luaL_newlib(L, lua_lv);
