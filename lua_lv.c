@@ -1234,7 +1234,62 @@ static const struct lua_lv_style lua_lv_styles[] = {
 	{ "outline_opa",	LV_STYLE_OUTLINE_OPA,	lua_lv_style_num },
 	{ "outline_pad",	LV_STYLE_OUTLINE_PAD,	lua_lv_style_num },
 
+	{ "shadow_width",	LV_STYLE_SHADOW_WIDTH,	lua_lv_style_num },
+	{ "shadow_ofs_x",	LV_STYLE_SHADOW_OFS_X,	lua_lv_style_num },
+	{ "shadow_ofs_y",	LV_STYLE_SHADOW_OFS_Y,	lua_lv_style_num },
+	{ "shadow_spread",	LV_STYLE_SHADOW_SPREAD,	lua_lv_style_num },
+	{ "shadow_color",	LV_STYLE_SHADOW_COLOR,	lua_lv_style_color },
+	{ "shadow_opa",		LV_STYLE_SHADOW_OPA,	lua_lv_style_num },
+	{ "img_opa",		LV_STYLE_IMG_OPA,	lua_lv_style_num },
+	{ "img_recolor",	LV_STYLE_IMG_RECOLOR,	lua_lv_style_color },
+	{ "img_recolor_opa",	LV_STYLE_IMG_RECOLOR_OPA,
+							lua_lv_style_num },
+	{ "line_width",		LV_STYLE_LINE_WIDTH,	lua_lv_style_num },
+	{ "line_dash_width",	LV_STYLE_LINE_DASH_WIDTH,
+							lua_lv_style_num },
+	{ "line_dash_gap",	LV_STYLE_LINE_DASH_GAP,	lua_lv_style_num },
+	{ "line_rounded",	LV_STYLE_LINE_ROUNDED,	lua_lv_style_bool },
+	{ "line_color",		LV_STYLE_LINE_COLOR,	lua_lv_style_color },
+	{ "line_opa",		LV_STYLE_LINE_OPA,	lua_lv_style_num },
+
+	{ "arc_width",		LV_STYLE_ARC_WIDTH,	lua_lv_style_num },
+	{ "arc_rounded",	LV_STYLE_ARC_ROUNDED,	lua_lv_style_bool },
+	{ "arc_color",		LV_STYLE_ARC_COLOR,	lua_lv_style_color },
+	{ "arc_opa",		LV_STYLE_ARC_OPA,	lua_lv_style_num },
+#if 0
+	{ "arc_img_src",	LV_STYLE_ARC_IMG_SRC,	lua_lv_style_},
+#endif
+	{ "text_color",		LV_STYLE_TEXT_COLOR,	lua_lv_style_color },
+	{ "text_opa",		LV_STYLE_TEXT_OPA,	lua_lv_style_num },
+#if 0
+	{ "text_font",		LV_STYLE_TEXT_FONT,	lua_lv_style_font },
+#endif
+	{ "text_letter_space",	LV_STYLE_TEXT_LETTER_SPACE,
+							lua_lv_style_num },
+	{ "text_line_space",	LV_STYLE_TEXT_LINE_SPACE,
+							lua_lv_style_num },
+	{ "text_line_decor",	LV_STYLE_TEXT_DECOR,	lua_lv_style_num },
+	{ "text_line_align",	LV_STYLE_TEXT_ALIGN,	lua_lv_style_num },
+
+	{ "opa",		LV_STYLE_OPA,		lua_lv_style_num },
+	{ "opa_layered",	LV_STYLE_OPA_LAYERED,	lua_lv_style_num },
+#if 0
+	{ "color_filtered_dsc",	LV_STYLE_COLOR_FILTER_DSC,
+							lua_lv_style_ },
+#endif
+	{ "color_filtered_opa",	LV_STYLE_COLOR_FILTER_OPA,
+							lua_lv_style_num },
+#if 0
+	{ "anim",		LV_STYLE_ANIM,		lua_lv_style_ },
+#endif
 	{ "anim_time",		LV_STYLE_ANIM_TIME,	lua_lv_style_num },
+	{ "anim_speed",		LV_STYLE_ANIM_SPEED,	lua_lv_style_num },
+#if 0
+	{ "transition",		LV_STYLE_TRANSITION,	lua_lv_style_num },
+#endif
+	{ "blend_mode",		LV_STYLE_BLEND_MODE,	lua_lv_style_num },
+	{ "layout",		LV_STYLE_LAYOUT,	lua_lv_style_num },
+	{ "base_dir",		LV_STYLE_BASE_DIR,	lua_lv_style_num },
 };
 
 static void
