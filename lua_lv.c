@@ -1292,19 +1292,65 @@ static const struct lua_lv_style lua_lv_styles[] = {
 	{ "base_dir",		LV_STYLE_BASE_DIR,	lua_lv_style_num },
 };
 
+static struct lua_lv_style lua_lv_style_flex_flow = {
+	.name = "flex_flow",
+	.check = lua_lv_style_num,
+};
+
+static struct lua_lv_style lua_lv_style_flex_main_place = {
+	.name = "flex_main_place",
+	.check = lua_lv_style_num,
+};
+
+static struct lua_lv_style lua_lv_style_flex_cross_place = {
+	.name = "flex_cross_place",
+	.check = lua_lv_style_num,
+};
+
+static struct lua_lv_style lua_lv_style_flex_track_place = {
+	.name = "flex_track_place",
+	.check = lua_lv_style_num,
+};
+
+static struct lua_lv_style lua_lv_style_flex_grow = {
+	.name = "flex_grow",
+	.check = lua_lv_style_num,
+};
+
+static void
+lua_lv_style_set(lua_State *L, int idx, const struct lua_lv_style *s)
+{
+	lua_pushstring(L, s->name);
+	lua_pushlightuserdata(L, (void *)s);
+	lua_settable(L, idx);
+}
+
 static void
 lua_lv_styles_init(lua_State *L)
 {
 	size_t i;
 
-	lua_newtable(L);
-	for (i = 0; i < nitems(lua_lv_styles); i++) {
-		const struct lua_lv_style *s = &lua_lv_styles[i];
+	lua_lv_style_flex_flow.prop = LV_STYLE_FLEX_FLOW;
 
-		lua_pushstring(L, s->name);
-		lua_pushlightuserdata(L, (void *)s);
-		lua_settable(L, -3);
-	}
+	lua_newtable(L);
+	for (i = 0; i < nitems(lua_lv_styles); i++)
+		lua_lv_style_set(L, -3, &lua_lv_styles[i]);
+
+	lua_lv_style_flex_flow.prop = LV_STYLE_FLEX_FLOW;
+	lua_lv_style_set(L, -3, &lua_lv_style_flex_flow);
+
+	lua_lv_style_flex_main_place.prop = LV_STYLE_FLEX_MAIN_PLACE;
+	lua_lv_style_set(L, -3, &lua_lv_style_flex_main_place);
+
+	lua_lv_style_flex_cross_place.prop = LV_STYLE_FLEX_CROSS_PLACE;
+	lua_lv_style_set(L, -3, &lua_lv_style_flex_cross_place);
+
+	lua_lv_style_flex_track_place.prop = LV_STYLE_FLEX_TRACK_PLACE;
+	lua_lv_style_set(L, -3, &lua_lv_style_flex_track_place);
+
+	lua_lv_style_flex_grow.prop = LV_STYLE_FLEX_GROW;
+	lua_lv_style_set(L, -3, &lua_lv_style_flex_grow);
+
 	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
 }
 
