@@ -953,6 +953,183 @@ lua_lv_pct(lua_State *L)
 	return (1);
 }
 
+/*
+ * color stuff
+ */
+
+static const struct lua_lv_constant lua_lv_palette_t[] = {
+	{ "red",		LV_PALETTE_RED },
+	{ "pink",		LV_PALETTE_PINK },
+	{ "purple",		LV_PALETTE_PURPLE },
+	{ "deep_purple",	LV_PALETTE_DEEP_PURPLE },
+	{ "deep-purple",	LV_PALETTE_DEEP_PURPLE },
+	{ "deep purple",	LV_PALETTE_DEEP_PURPLE },
+	{ "indigo",		LV_PALETTE_INDIGO },
+	{ "blue",		LV_PALETTE_BLUE },
+	{ "light_blue",		LV_PALETTE_LIGHT_BLUE },
+	{ "light-blue",		LV_PALETTE_LIGHT_BLUE },
+	{ "light blue",		LV_PALETTE_LIGHT_BLUE },
+	{ "cyan",		LV_PALETTE_CYAN },
+	{ "teal",		LV_PALETTE_TEAL },
+	{ "green",		LV_PALETTE_GREEN },
+	{ "light_green",	LV_PALETTE_LIGHT_GREEN },
+	{ "light-green",	LV_PALETTE_LIGHT_GREEN },
+	{ "light green",	LV_PALETTE_LIGHT_GREEN },
+	{ "lime",		LV_PALETTE_LIME },
+	{ "yellow",		LV_PALETTE_YELLOW },
+	{ "amber",		LV_PALETTE_AMBER },
+	{ "orange",		LV_PALETTE_ORANGE },
+	{ "deep_orange",	LV_PALETTE_DEEP_ORANGE },
+	{ "deep-orange",	LV_PALETTE_DEEP_ORANGE },
+	{ "deep orange",	LV_PALETTE_DEEP_ORANGE },
+	{ "brown",		LV_PALETTE_BROWN },
+	{ "blue_grey",		LV_PALETTE_BLUE_GREY },
+	{ "blue-grey",		LV_PALETTE_BLUE_GREY },
+	{ "blue grey",		LV_PALETTE_BLUE_GREY },
+	{ "grey",		LV_PALETTE_GREY },
+};
+
+static void
+lua_lv_palette_init(lua_State *L)
+{
+	size_t i;
+
+	lua_newtable(L);
+	for (i = 0; i < nitems(lua_lv_palette_t); i++) {
+		const struct lua_lv_constant *c = &lua_lv_palette_t[i];
+
+		lua_pushstring(L, c->k);
+		lua_pushinteger(L, c->v);
+		lua_settable(L, -3);
+	}
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_palette_t);
+}
+
+/* returns -1 if the thing wasnt found */
+static int
+lua_lv_palette_get(lua_State *L, int idx)
+{
+	int rv = -1;
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_palette_t);
+	lua_pushvalue(L, idx);
+	lua_rawget(L, -1);
+	if (lua_isinteger(L, -1))
+		rv = lua_tointeger(L, -1);
+	lua_pop(L, 1);
+
+	return (rv);
+}
+
+static uint8_t
+lua_lv_checku8(lua_State *L, int idx)
+{
+	int i = luaL_checkinteger(L, idx);
+	luaL_argcheck(L, i >= 0 && i <= 255, idx, "invalid value");
+	return (i);
+}
+
+static int
+lua_lv_hexdec(lua_State *L, int ch)
+{
+	if (ch >= '0' && ch <= '9')
+		return (ch - '0');
+	if (ch >= 'a' && ch <= 'f')
+		return (ch - 'a');
+	if (ch >= 'A' && ch <= 'F')
+		return (ch - 'A');
+
+	return luaL_error(L, "invalid hex digit");
+}
+
+static lv_color_t
+lua_lv_color_arg(lua_State *L, int idx)
+{
+	int r, g, b;
+	int palette;
+	const char *str;
+
+	if (lua_istable(L, idx)) {
+		lua_rawgeti(L, 1, 1);
+		r = lua_lv_checku8(L, -1);
+		lua_rawgeti(L, 1, 2);
+		g = lua_lv_checku8(L, -1);
+		lua_rawgeti(L, 1, 3);
+		b = lua_lv_checku8(L, -1);
+		lua_pop(L, 3);
+
+		return lv_color_make(r, g, b);
+	}
+
+	if (lua_isinteger(L, idx)) {
+		int hex = luaL_checkinteger(L, idx);
+		luaL_argcheck(L, hex >= 0x0 && hex <= 0xffffff, idx,
+		    "invalid value");
+			
+		return lv_color_hex(hex);
+	}
+
+	palette = lua_lv_palette_get(L, idx);
+	if (palette != -1)
+		return lv_palette_main(palette);
+
+	str = lua_tostring(L, idx);
+	luaL_argcheck(L, str[0] == '#', idx, "hex strings start with #");
+
+	switch (strlen(str)) {
+	case '4':
+		r = lua_lv_hexdec(L, str[1]);
+		g = lua_lv_hexdec(L, str[2]);
+		b = lua_lv_hexdec(L, str[3]);
+
+		r |= r << 4;
+		g |= g << 4;
+		b |= b << 4;
+		break;
+	case '7':
+		r  = lua_lv_hexdec(L, str[1]) << 4;
+		r |= lua_lv_hexdec(L, str[2]);
+		g  = lua_lv_hexdec(L, str[3]) << 4;
+		g |= lua_lv_hexdec(L, str[4]);
+		b  = lua_lv_hexdec(L, str[5]) << 4;
+		b |= lua_lv_hexdec(L, str[6]);
+		break;
+	default:
+		luaL_error(L, "invalid hex string");
+		return lv_color_hex(0x000000); /* notreached */
+	}
+
+	return lv_color_make(r, g, b);
+}
+
+static int
+lua_lv_color(lua_State *L)
+{
+	lv_color_t c;
+	int r, g, b;
+	const char *str;
+	int palette;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		r = lua_lv_checku8(L, 1);
+		g = lua_lv_checku8(L, 2);
+		b = lua_lv_checku8(L, 3);
+
+		c = lv_color_make(r, g, b);
+		break;
+	case 1:
+		c = lua_lv_color_arg(L, 1);
+		break;
+
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushinteger(L, c.full);
+	return (1);
+}
+
 static int
 lua_lv_grid_fr(lua_State *L)
 {
@@ -1758,6 +1935,7 @@ static const luaL_Reg lua_lv[] = {
 	{ "scr_act",		lua_lv_scr_act },
 
 	{ "pct",		lua_lv_pct },
+	{ "color",		lua_lv_color },
 
 	{ NULL,			NULL }
 };
