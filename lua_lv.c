@@ -1168,6 +1168,108 @@ lua_lv_grid_fr(lua_State *L)
 }
 
 /*
+ * fonts
+ */
+
+struct lua_lv_font {
+	const char		*k;
+	const lv_font_t		*v;
+};
+
+static const struct lua_lv_font lua_lv_fonts[] = {
+#if LV_FONT_MONTSERRAT_8
+	{ "MONTSERRAT_8",		&lv_font_montserrat_8 },
+#endif
+#if LV_FONT_MONTSERRAT_12
+	{ "MONTSERRAT_12",		&lv_font_montserrat_12 },
+#endif
+#if LV_FONT_MONTSERRAT_14
+	{ "MONTSERRAT_14",		&lv_font_montserrat_14 },
+#endif
+#if LV_FONT_MONTSERRAT_16
+	{ "MONTSERRAT_16",		&lv_font_montserrat_16 },
+#endif
+#if LV_FONT_MONTSERRAT_18
+	{ "MONTSERRAT_18",		&lv_font_montserrat_18 },
+#endif
+#if LV_FONT_MONTSERRAT_20
+	{ "MONTSERRAT_20",		&lv_font_montserrat_20 },
+#endif
+#if LV_FONT_MONTSERRAT_22
+	{ "MONTSERRAT_22",		&lv_font_montserrat_22 },
+#endif
+#if LV_FONT_MONTSERRAT_24
+	{ "MONTSERRAT_24",		&lv_font_montserrat_24 },
+#endif
+#if LV_FONT_MONTSERRAT_24
+	{ "MONTSERRAT_24",		&lv_font_montserrat_24 },
+#endif
+#if LV_FONT_MONTSERRAT_28
+	{ "MONTSERRAT_28",		&lv_font_montserrat_28 },
+#endif
+#if LV_FONT_MONTSERRAT_30
+	{ "MONTSERRAT_30",		&lv_font_montserrat_30 },
+#endif
+#if LV_FONT_MONTSERRAT_32
+	{ "MONTSERRAT_32",		&lv_font_montserrat_32 },
+#endif
+#if LV_FONT_MONTSERRAT_34
+	{ "MONTSERRAT_34",		&lv_font_montserrat_34 },
+#endif
+#if LV_FONT_MONTSERRAT_36
+	{ "MONTSERRAT_36",		&lv_font_montserrat_36 },
+#endif
+#if LV_FONT_MONTSERRAT_38
+	{ "MONTSERRAT_38",		&lv_font_montserrat_38 },
+#endif
+#if LV_FONT_MONTSERRAT_40
+	{ "MONTSERRAT_40",		&lv_font_montserrat_40 },
+#endif
+#if LV_FONT_MONTSERRAT_42
+	{ "MONTSERRAT_42",		&lv_font_montserrat_42 },
+#endif
+#if LV_FONT_MONTSERRAT_44
+	{ "MONTSERRAT_44",		&lv_font_montserrat_44 },
+#endif
+#if LV_FONT_MONTSERRAT_46
+	{ "MONTSERRAT_46",		&lv_font_montserrat_46 },
+#endif
+#if LV_FONT_MONTSERRAT_48
+	{ "MONTSERRAT_48",		&lv_font_montserrat_48 },
+#endif
+#if LV_FONT_UNSCII_8
+	{ UNSCII_8",			&lv_font_unscii_8 },
+#endif
+#if LV_FONT_UNSCII_16
+	{ UNSCII_16",			&lv_font_unscii_16 },
+#endif
+
+#if LV_FONT_MONTSERRAT_12_SUBPX
+	{ "MONTSERRAT_12_SUBPX",	&lv_font_montserrat_12_subpx },
+#endif
+};
+
+static void
+lua_lv_fonts_init(lua_State *L)
+{
+	size_t i;
+
+	lua_newtable(L);
+	for (i = 0; i < nitems(lua_lv_fonts); i++) {
+		const struct lua_lv_font *f = &lua_lv_fonts[i];
+		lua_pushstring(L, f->k);
+		lua_pushlightuserdata(L, (void *)f->v);
+		lua_rawset(L, -3);
+	}
+
+	lua_pushliteral(L, "DEFAULT");
+	lua_pushlightuserdata(L, (void *)LV_FONT_DEFAULT);
+	lua_rawset(L, -3);
+
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
+}
+
+/*
  * style stuff
  */
 
@@ -1203,6 +1305,26 @@ lua_lv_style_color(lua_State *L, int idx)
 	lv_style_value_t v = {
 		.color = lua_lv_color_arg(L, idx)
 	};
+
+	return (v);
+}
+
+static lv_style_value_t
+lua_lv_style_font(lua_State *L, int idx)
+{
+	lv_style_value_t v;
+	lv_font_t *f;
+
+LVDPRINTF("gettop:%d", lua_gettop(L));
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
+	lua_pushvalue(L, idx);
+	lua_rawget(L, -2);
+
+	f = lua_touserdata(L, -1);
+	luaL_argcheck(L, f != NULL, idx, "unknown font");
+LVDPRINTF("gettop:%d", lua_gettop(L));
+
+	v.ptr = f;
 
 	return (v);
 }
@@ -1291,9 +1413,7 @@ static const struct lua_lv_style lua_lv_styles[] = {
 #endif
 	{ "text_color",		LV_STYLE_TEXT_COLOR,	lua_lv_style_color },
 	{ "text_opa",		LV_STYLE_TEXT_OPA,	lua_lv_style_num },
-#if 0
 	{ "text_font",		LV_STYLE_TEXT_FONT,	lua_lv_style_font },
-#endif
 	{ "text_letter_space",	LV_STYLE_TEXT_LETTER_SPACE,
 							lua_lv_style_num },
 	{ "text_line_space",	LV_STYLE_TEXT_LINE_SPACE,
@@ -2286,6 +2406,7 @@ luaopen_lv(lua_State *L)
 		lua_rawsetp(L, LUA_REGISTRYINDEX, c->obj_class);
 	}
 
+	lua_lv_fonts_init(L);
 	lua_lv_palette_init(L);
 	lua_lv_styles_init(L);
 
