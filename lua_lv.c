@@ -59,81 +59,41 @@ struct lua_lv_constants {
 #define LUA_LV_OBJ_STR		"'" LUA_LV_OBJ_T "'"
 static const char lua_lv_obj_type[] = LUA_LV_OBJ_T;
 
-/*
- * if we give memory to an obj, we put a table in the registry to track it
- */
-#define LUA_LV_OBJ_REF_LOBJ		1 /* this keeps the lobj alive */
-#define LUA_LV_OBJ_REF_GRID_COL_DSC	2
-#define LUA_LV_OBJ_REF_GRID_ROW_DSC	3
-
-static void
-lua_lv_get_obj_table(lua_State *L)
-{
-	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_obj_type);
-	if (!lua_istable(L, -1))
-		luaL_error(L, "lua_lv_obj_type table missing");
-}
-
-static void
-lua_lv_obj_udata(lua_State *L, lv_obj_t *obj)
-{
-	lua_lv_get_obj_table(L);
-	lua_pushlightuserdata(L, obj);
-	lua_rawget(L, -2);
-}
-
-static void
-lua_lv_obj_set(lua_State *L, lv_obj_t *obj)
-{
-	/* lv_obj_t udata must be at the top of the stack */
-	luaL_checkudata(L, -1, lua_lv_obj_type);
-
-	lua_lv_get_obj_table(L);
-	lua_pushlightuserdata(L, obj);
-	lua_pushvalue(L, -3);
-	lua_rawset(L, -3);
-	lua_pop(L, 1);
-}
-
-static void
-lua_lv_obj_clr(lua_State *L, lv_obj_t *obj)
-{
-	lua_lv_get_obj_table(L);
-	lua_pushlightuserdata(L, obj);
-	lua_pushnil(L);
-	lua_rawset(L, -3);
-	lua_pop(L, 1);
-}
+static const char lua_lv_state[] = "_lua_lv_state";
 
 struct lua_lv_obj {
 	lv_obj_t		*lv_obj;
-	int			 table;
 };
 
+#define LUA_LV_OBJ_REF_LOBJ		1
+#define LUA_LV_OBJ_REF_EVENTS		2
+#define LUA_LV_OBJ_REF_GRID_COL_DSC	3
+#define LUA_LV_OBJ_REF_GRID_ROW_DSC	4
+
 static void
-lua_lv_delete_cb(lv_event_t *e)
+lua_lv_obj_delete_cb(lv_event_t *e)
 {
 	lua_State *L = lv_event_get_user_data(e);
-	lv_obj_t *obj = lv_event_get_target(e);
+	lv_obj_t *obj = lv_event_get_current_target(e);
 	struct lua_lv_obj *lobj;
 	unsigned int i;
 
-	lua_lv_obj_udata(L, obj);
+	if (lua_rawgetp(L, LUA_REGISTRYINDEX, obj) != LUA_TTABLE) {
+		LVDPRINTF("obj:%p, lua table is missing", obj);
+		return;
+	}
+
+	lua_rawgeti(L, -1, LUA_LV_OBJ_REF_LOBJ);
 	lobj = luaL_checkudata(L, -1, lua_lv_obj_type);
 
-	LVDPRINTF("obj:%p, lobj:%p, lobj->lv_obj:%p", obj, lobj, lobj->lv_obj);
-
-	/* destroy the event handlers */
-	lua_pushvalue(L, -1);
-	lua_pushnil(L);
-	lua_rawset(L, LUA_REGISTRYINDEX);
-
-	/* release the table */
-	lua_pushnil(L);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, obj);
+	LVDPRINTF("obj:%p, lobj:%p, lobj->lv_obj:%p",
+	    obj, lobj, lobj->lv_obj);
 
 	lobj->lv_obj = NULL;
-	lua_lv_obj_clr(L, obj);
+	lua_pop(L, 2);
+
+	lua_pushnil(L);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, obj);
 }
 
 static lv_obj_t *
@@ -156,6 +116,51 @@ lua_lv_check_obj_class(lua_State *L, int idx, const lv_obj_class_t *class)
 	return (obj);
 }
 
+static struct lua_lv_obj *
+lua_lv_obj_register(lua_State *L, lv_obj_t *obj)
+{
+	struct lua_lv_obj *lobj;
+
+	lobj = lua_newuserdata(L, sizeof(*lobj));
+	lobj->lv_obj = obj;
+
+	lv_obj_add_event_cb(obj, lua_lv_obj_delete_cb, LV_EVENT_DELETE, L);
+	luaL_setmetatable(L, lua_lv_obj_type);
+
+	lua_newtable(L); /* t = {} */
+	lua_pushvalue(L, -2);
+	lua_rawseti(L, -2, LUA_LV_OBJ_REF_LOBJ); /* t[1] = lobj */
+	lua_rawsetp(L, LUA_REGISTRYINDEX, obj); /* lua[obj] = t */
+
+	return (lobj);
+}
+
+static struct lua_lv_obj *
+lua_lv_obj_getp(lua_State *L, lv_obj_t *obj)
+{
+	struct lua_lv_obj *lobj;
+
+	switch (lua_rawgetp(L, LUA_REGISTRYINDEX, obj)) {
+	case LUA_TNIL:
+		lobj = lua_lv_obj_register(L, obj);
+		break;
+	case LUA_TTABLE:
+		lua_rawgeti(L, -1, LUA_LV_OBJ_REF_LOBJ);
+		lobj = luaL_checkudata(L, -1, lua_lv_obj_type);
+		lua_remove(L, -2);
+		if (lobj->lv_obj != obj) {
+			luaL_error(L, "lv_lv_obj_getp udata mismatch");
+			return (NULL);
+		}
+		break;
+	default:
+		luaL_error(L, "unexpected lua type for obj");
+		return (NULL);
+	}
+
+	return (lobj);
+}
+
 static int
 lua_lv_scr_act(lua_State *L)
 {
@@ -164,24 +169,9 @@ lua_lv_scr_act(lua_State *L)
 
 	obj = lv_scr_act();
 	if (obj == NULL)
-		return luaL_error(L, "lv_scr_act() returned NULL");
+		return luaL_error(L, "no active screen");
 
-	lua_lv_obj_udata(L, obj);
-	if (lua_isnoneornil(L, -1)) {
-		lobj = lua_newuserdata(L, sizeof(*lobj));
-		lobj->lv_obj = obj;
-		lobj->table = LUA_REFNIL;
-
-		lv_obj_add_event_cb(obj, lua_lv_delete_cb, LV_EVENT_DELETE, L);
-
-		luaL_setmetatable(L, lua_lv_obj_type);
-		lua_lv_obj_set(L, obj);
-	} else {
-		lobj = luaL_checkudata(L, -1, lua_lv_obj_type);
-		if (lobj->lv_obj != obj)
-			return luaL_error(L, "lv_scr_act udata mismatch");
-	}
-
+	lobj = lua_lv_obj_getp(L, obj);
 	LVDPRINTF("obj:%p, lobj:%p", obj, lobj);
 
 	return (1);
@@ -208,25 +198,17 @@ lua_lv_obj_create_udata(lua_State *L, lv_obj_t *(*lv_create)(lv_obj_t *))
 	lv_obj_t *obj;
 	struct lua_lv_obj *lobj;
 
-	if (!lua_isnoneornil(L, 1)) {
+	if (!lua_isnoneornil(L, 1))
 		parent = lua_lv_check_obj(L, 1);
-		lua_pop(L, 1);
-	}
-
-	lobj = lua_newuserdata(L, sizeof(*lobj));
-	lobj->lv_obj = NULL;
-	lobj->table = LUA_REFNIL;
-
-	luaL_setmetatable(L, lua_lv_obj_type);
 
 	obj = (*lv_create)(parent);
 	if (obj == NULL)
 		return luaL_error(L, "lv_obj_create failed");
 
-	lv_obj_add_event_cb(obj, lua_lv_delete_cb, LV_EVENT_DELETE, L);
+	if (parent != NULL)
+		lua_pop(L, 1);
 
-	lobj->lv_obj = obj;
-	lua_lv_obj_set(L, obj);
+	lua_lv_obj_register(L, obj);
 
 	LVDPRINTF("parent:%p, obj:%p, lobj:%p", parent, obj, lobj);
 
@@ -319,25 +301,41 @@ lua_lv_event_cb(lv_event_t *e)
 	lv_obj_t *obj = lv_event_get_current_target(e);
 	lv_event_code_t event = lv_event_get_code(e);
 	struct lua_lv_obj *lobj;
+	int type;
 
 	int top = lua_gettop(L);
 
-	lua_lv_obj_udata(L, obj);
+	switch (lua_rawgetp(L, LUA_REGISTRYINDEX, obj)) {
+	case LUA_TNIL:
+		LVDPRINTF("obj:%p, lua table is missing", obj);
+		goto pop;
+	case LUA_TTABLE:
+		break;
+	default:
+		LVDPRINTF("obj:%p, weird type in lua registry", obj);
+		goto pop;
+	}
+
+	lua_rawgeti(L, -1, LUA_LV_OBJ_REF_LOBJ);
 	lobj = luaL_checkudata(L, -1, lua_lv_obj_type);
 
-	lua_pushvalue(L, -1);
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (!lua_istable(L, -1))
+	switch (lua_rawgeti(L, -2, LUA_LV_OBJ_REF_EVENTS)) {
+	case LUA_TNIL:
+		LVDPRINTF("obj:%p, no event table", obj);
 		goto pop;
+	case LUA_TTABLE:
+		break;
+	default:
+		LVDPRINTF("obj:%p, weird type for obj ref", obj);
+		goto pop;
+	}
 
-	lua_pushinteger(L, event);
-	lua_rawget(L, -2);
+	lua_rawgeti(L, -1, event);
 	if (lua_istable(L, -1))
 		lua_lv_event_cb_pcall(L, e);
 	lua_pop(L, 1);
 
-	lua_pushinteger(L, LV_EVENT_ALL);
-	lua_rawget(L, -2);
+	lua_rawgeti(L, -1, LV_EVENT_ALL);
 	if (lua_istable(L, -1))
 		lua_lv_event_cb_pcall(L, e);
 	/* lua_pop(L, 1); - going to pop anyway */
@@ -351,21 +349,20 @@ lua_lv_obj_add_event_cb(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
 	lv_event_code_t event = luaL_checkinteger(L, 2);
+	int type;
 	int add = 0;
 
 	luaL_argcheck(L, lua_isfunction(L, 3), 3, "callback function required");
 
-	lua_pushvalue(L, 1);
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (lua_isnil(L, -1)) {
+	type = lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
+	luaL_argcheck(L, type == LUA_TTABLE, 1, "lv obj has no table");
+
+	if (lua_rawgeti(L, -1, LUA_LV_OBJ_REF_EVENTS) == LUA_TNIL) {
 		lua_pop(L, 1);
 
-		lua_pushvalue(L, 1);
 		lua_newtable(L);
-
 		add = 1;
-	} else if (!lua_istable(L, -1))
-		return luaL_error(L, "event table is not a table");
+	}
 
 	lua_pushinteger(L, event);
 
@@ -383,7 +380,7 @@ lua_lv_obj_add_event_cb(lua_State *L)
 	lua_rawset(L, -3);
 
 	if (add) {
-		lua_rawset(L, LUA_REGISTRYINDEX);
+		lua_rawseti(L, -2, LUA_LV_OBJ_REF_EVENTS);
 		lv_obj_add_event_cb(obj, lua_lv_event_cb, LV_EVENT_ALL, L);
 	}
 
@@ -395,28 +392,26 @@ lua_lv_obj_del_event_cb(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
 	lv_event_code_t event = luaL_checkinteger(L, 2);
+	int type;
 
-	lua_pushvalue(L, 1);
-	lua_rawget(L, LUA_REGISTRYINDEX);
-	if (lua_isnil(L, -1)) {
-		LVDPRINTF("obj:%p, no event found", obj);
-		/* no event table found */
+	type = lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
+	luaL_argcheck(L, type == LUA_TTABLE, 1, "lv obj has no table");
+
+	if (lua_rawgeti(L, -1, LUA_LV_OBJ_REF_EVENTS) == LUA_TNIL) {
+		LVDPRINTF("obj:%p, event %d found", obj, event);
 		return (0);
-	} else if (!lua_istable(L, -1))
-		return luaL_error(L, "event table is not a table");
+	}
 
-	lua_pushinteger(L, event);
 	lua_pushnil(L);
-	lua_rawset(L, -3);
+	lua_rawseti(L, -2, LUA_LV_OBJ_REF_EVENTS);
 
 	lua_pushnil(L);
 	if (!lua_next(L, -2)) {
 		LVDPRINTF("obj:%p, empty event table", obj);
-		lua_pushvalue(L, 1);
-		lua_pushnil(L);
-		lua_rawset(L, LUA_REGISTRYINDEX);
-
 		lv_obj_remove_event_cb_with_user_data(obj, lua_lv_event_cb, L);
+
+		lua_pushnil(L);
+		lua_rawseti(L, -3, LUA_LV_OBJ_REF_EVENTS);
 	}
 
 	return (0);
@@ -430,14 +425,23 @@ lua_lv_obj__gc(lua_State *L)
 
 	LVDPRINTF("obj:%p, lobj:%p", obj, lobj);
 
+	/* this should only happen on lua_close */
 	if (obj != NULL) {
-		lua_lv_obj_clr(L, obj);
-		lv_obj_remove_event_cb_with_user_data(obj,
-		    lua_lv_delete_cb, L);
-		lv_obj_remove_event_cb_with_user_data(obj,
-		    lua_lv_event_cb, L);
+		if (obj == lv_scr_act()) {
+			lv_obj_t *scr;
 
-		lobj->lv_obj = NULL;
+			scr = lv_obj_create(NULL);
+			if (scr == NULL)
+				return luaL_error(L, "scr replacement failed");
+
+			LVDPRINTF("obj:%p is screen, loading new scr:%p",
+			    obj, scr);
+			lv_scr_load(scr);
+		}
+
+		lv_obj_del(obj);
+		if (lobj->lv_obj != NULL)
+			return luaL_error(L, "lv_obj not deleted");
 	}
 
 	return (0);
@@ -497,6 +501,9 @@ lua_lv_obj_del(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
 	LVDPRINTF("obj:%p", obj);
+	if (obj == lv_scr_act())
+		return luaL_error(L, "object is the active screen");
+
 	lv_obj_del(obj);
 	return (0);
 }
@@ -506,6 +513,9 @@ lua_lv_obj_del_async(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
 	LVDPRINTF("obj:%p", obj);
+	if (obj == lv_scr_act())
+		return luaL_error(L, "object is the active screen");
+
 	lv_obj_del_async(obj);
 	return (0);
 }
@@ -517,6 +527,9 @@ lua_lv_obj_del_delayed(lua_State *L)
 	int ms = luaL_checkinteger(L, 2);
 	luaL_argcheck(L, ms > 0, 2, "milliseconds must be > 0");
 	LVDPRINTF("obj:%p, ms:%d", obj, ms);
+	if (obj == lv_scr_act())
+		return luaL_error(L, "object is the active screen");
+
 	lv_obj_del_delayed(obj, ms);
 	return (0);
 }
@@ -780,18 +793,13 @@ lua_lv_obj_set_grid_array(lua_State *L)
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
 	lv_coord_t *col_dsc;
 	lv_coord_t *row_dsc;
+	int type;
 
 	if (lua_gettop(L) != 3)
 		return luaL_error(L, "invalid number of arguments");
 
-	lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
-	if (lua_isnil(L, -1)) {
-		lua_pop(L, 1);
-		lua_newtable(L);
-
-		lua_pushvalue(L, 1);
-		lua_rawseti(L, -2, LUA_LV_OBJ_REF_LOBJ);
-	}
+	type = lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
+	luaL_argcheck(L, type == LUA_TTABLE, 1, "lv obj has no table");
 
 	col_dsc = lua_lv_obj_set_grid_array_dsc(L, 2);
 	lua_rawseti(L, -2, LUA_LV_OBJ_REF_GRID_COL_DSC);
@@ -800,9 +808,6 @@ lua_lv_obj_set_grid_array(lua_State *L)
 	lua_rawseti(L, -2, LUA_LV_OBJ_REF_GRID_ROW_DSC);
 
 	lv_obj_set_grid_dsc_array(obj, col_dsc, row_dsc);
-
-	/* doing this again doesn't hurt */
-	lua_rawsetp(L, LUA_REGISTRYINDEX, obj);
 
 	return (0);
 }
@@ -1079,7 +1084,7 @@ lua_lv_color_arg(lua_State *L, int idx)
 		int hex = luaL_checkinteger(L, idx);
 		luaL_argcheck(L, hex >= 0x0 && hex <= 0xffffff, idx,
 		    "invalid value");
-			
+
 		return lv_color_hex(hex);
 	}
 
@@ -1343,8 +1348,6 @@ static void
 lua_lv_styles_init(lua_State *L)
 {
 	size_t i;
-
-	lua_lv_style_flex_flow.prop = LV_STYLE_FLEX_FLOW;
 
 	lua_newtable(L);
 	for (i = 0; i < nitems(lua_lv_styles); i++)
@@ -2096,17 +2099,16 @@ static const luaL_Reg lua_lv[] = {
 	{ NULL,			NULL }
 };
 
-static const char lua_lv_state[] = "lua_lv";
-
 static int
 lua_lv_state__gc(lua_State *L)
 {
-	struct lua_lv_obj *lscr = luaL_checkudata(L, -1, lua_lv_state);
+	struct lua_lv_obj *lstate = luaL_checkudata(L, -1, lua_lv_state);
 	lv_obj_t *scr;
 
 	scr = lv_scr_act();
-	lv_scr_load(lscr->lv_obj);
-	//lv_obj_del(scr);
+	LVDPRINTF("lstate:%p, scr:%p", lstate, scr);
+	lv_scr_load(lstate->lv_obj);
+	lv_obj_del(scr);
 
 	return (0);
 }
@@ -2114,17 +2116,10 @@ lua_lv_state__gc(lua_State *L)
 int
 luaopen_lv(lua_State *L)
 {
-	size_t i;
-	struct lua_lv_obj *lscr;
+	struct lua_lv_obj *lstate;
 	lv_obj_t *scr;
-
-	lua_newtable(L); /* new lua_lv_obj_type table */
-	lua_newtable(L); /* new metatable */
-	lua_pushliteral(L, "__mode");
-	lua_pushliteral(L, "v");
-	lua_rawset(L, -3); /* metatable["__mode"] = "v" */
-	lua_setmetatable(L, -2);
-	lua_rawsetp(L, LUA_REGISTRYINDEX, &lua_lv_obj_type);
+	struct lua_lv_obj *lscr;
+	size_t i;
 
 	for (i = 0; i < nitems(lua_lv_obj_classes); i++) {
 		const struct lua_lv_obj_class *c = &lua_lv_obj_classes[i];
@@ -2133,6 +2128,9 @@ luaopen_lv(lua_State *L)
 		luaL_setfuncs(L, c->methods, 0);
 		lua_rawsetp(L, LUA_REGISTRYINDEX, c->obj_class);
 	}
+
+	lua_lv_palette_init(L);
+	lua_lv_styles_init(L);
 
 	if (luaL_newmetatable(L, lua_lv_obj_type)) {
 		lua_pushliteral(L, "__gc");
@@ -2151,12 +2149,7 @@ luaopen_lv(lua_State *L)
 		lua_pushliteral(L, "nope");
 		lua_settable(L, -3);
 	}
-
-	lua_lv_palette_init(L);
-	lua_lv_styles_init(L);
-
-	luaL_newlib(L, lua_lv);
-	lua_lv_constants(L);
+	lua_pop(L, 1);
 
 	if (luaL_newmetatable(L, lua_lv_state)) {
 		lua_pushliteral(L, "__gc");
@@ -2166,19 +2159,23 @@ luaopen_lv(lua_State *L)
 		lua_pushliteral(L, "__metatable");
 		lua_pushliteral(L, "nope");
 		lua_settable(L, -3);
-
-		lscr = lua_newuserdata(L, sizeof(*lscr));
-		lscr->lv_obj = lv_scr_act();
-		luaL_setmetatable(L, lua_lv_state);
-
-		/* keep the ref */
-		lua_rawsetp(L, LUA_REGISTRYINDEX, lscr->lv_obj);
-
-		scr = lv_obj_create(NULL);
-		lv_scr_load(scr);
-
-		lua_pop(L, 1);
 	}
+	lua_pop(L, 1);
+
+	lstate = lua_newuserdata(L, sizeof(*lstate));
+	lstate->lv_obj = lv_scr_act();
+	luaL_setmetatable(L, lua_lv_state);
+
+	/* keep the ref */
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_state);
+
+	scr = lv_obj_create(NULL);
+	if (scr == NULL)
+		return luaL_error(L, "unable to create new screen");
+	lv_scr_load(scr);
+
+	luaL_newlib(L, lua_lv);
+	lua_lv_constants(L);
 
 	return (1);
 }
