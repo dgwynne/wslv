@@ -60,6 +60,7 @@ struct lua_lv_constants {
 static const char lua_lv_obj_type[] = LUA_LV_OBJ_T;
 
 static const char lua_lv_style_type[] = "lv_style_t";
+static const char lua_lv_ft_type[] = "lv_ft_info_t";
 
 static const char lua_lv_state[] = "_lua_lv_state";
 
@@ -1171,6 +1172,87 @@ lua_lv_grid_fr(lua_State *L)
  * fonts
  */
 
+static int
+lua_lv_ft_create(lua_State *L)
+{
+	const char *name = luaL_checkstring(L, 1);
+	int weight = luaL_checkinteger(L, 2);
+	int style = FT_FONT_STYLE_NORMAL;
+	lv_ft_info_t *ft_info;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		style = luaL_checkinteger(L, 3);
+		/* FALLTHROUGHT */
+	case 2:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	luaL_argcheck(L, weight > 0, 2, "weight must be positive");
+
+	ft_info = lua_newuserdata(L, sizeof(*ft_info));
+	luaL_setmetatable(L, lua_lv_style_type);
+	ft_info->name = NULL;
+	ft_info->weight = weight;
+	ft_info->style = style;
+	ft_info->mem = NULL;
+
+	luaL_setmetatable(L, lua_lv_ft_type);
+
+	ft_info->name = strdup(name);
+	if (ft_info->name == NULL)
+		return luaL_error(L, "unable to copy font name");
+
+	if (!lv_ft_font_init(ft_info))
+		return luaL_error(L, "font init failed");
+
+	/* once a style is created it should never go away */
+	lua_newtable(L);
+	lua_pushvalue(L, -2);
+	lua_rawsetp(L, -2, ft_info);
+
+	lua_rawsetp(L, LUA_REGISTRYINDEX, ft_info);
+
+	return (1);
+}
+
+static int
+lua_lv_ft__index(lua_State *L)
+{
+	lv_ft_info_t *ft_info = luaL_checkudata(L, 1, lua_lv_ft_type);
+	const char *key = lua_tostring(L, 2);
+
+	if (lua_getmetatable(L, -2)) {
+		lua_pushstring(L, key);
+		lua_rawget(L, -2);
+	} else
+		lua_pushnil(L);
+
+	return (1);
+}
+
+static int
+lua_lv_ft__newindex(lua_State *L)
+{
+	lv_ft_info_t *ft_info = luaL_checkudata(L, 1, lua_lv_ft_type);
+	LVDPRINTF("ft_info:%p, gettop():%d", ft_info, lua_gettop(L));
+	return (0);
+}
+
+static int
+lua_lv_ft__gc(lua_State *L)
+{
+	lv_ft_info_t *ft_info = luaL_checkudata(L, 1, lua_lv_ft_type);
+
+	if (ft_info->font)
+		lv_ft_font_destroy(ft_info->font);
+	free((void *)ft_info->name);
+
+	return (0);
+}
+
 struct lua_lv_font {
 	const char		*k;
 	const lv_font_t		*v;
@@ -1315,13 +1397,18 @@ lua_lv_style_font(lua_State *L, int idx)
 	lv_style_value_t v;
 	lv_font_t *f;
 
-	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
-	lua_pushvalue(L, idx);
-	lua_rawget(L, -2);
+	if (luaL_testudata(L, idx, lua_lv_ft_type)) {
+		lv_ft_info_t *ft_info = lua_touserdata(L, idx);
+		f = ft_info->font;
+	} else {
+		lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
+		lua_pushvalue(L, idx);
+		lua_rawget(L, -2);
 
-	f = lua_touserdata(L, -1);
-	luaL_argcheck(L, f != NULL, idx, "unknown font");
-	lua_pop(L, 2);
+		f = lua_touserdata(L, -1);
+		luaL_argcheck(L, f != NULL, idx, "unknown font");
+		lua_pop(L, 2);
+	}
 
 	v.ptr = f;
 
@@ -2364,6 +2451,8 @@ static const luaL_Reg lua_lv[] = {
 	{ "switch",		lua_lv_switch_create },
 
 	{ "style",		lua_lv_style_create },
+	{ "ft",			lua_lv_ft_create },
+	{ "ttf",		lua_lv_ft_create },
 
 	{ "scr_act",		lua_lv_scr_act },
 	{ "hor_res",		lua_lv_hor_res },
@@ -2459,6 +2548,25 @@ luaopen_lv(lua_State *L)
 
 		lua_pushliteral(L, "reset");
 		lua_pushcfunction(L, lua_lv_style_reset);
+		lua_settable(L, -3);
+	}
+	lua_pop(L, 1);
+
+	if (luaL_newmetatable(L, lua_lv_ft_type)) {
+		lua_pushliteral(L, "__gc");
+		lua_pushcfunction(L, lua_lv_ft__gc);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__index");
+		lua_pushcfunction(L, lua_lv_ft__index);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__newindex");
+		lua_pushcfunction(L, lua_lv_ft__newindex);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__metatable");
+		lua_pushliteral(L, "nope");
 		lua_settable(L, -3);
 	}
 	lua_pop(L, 1);
