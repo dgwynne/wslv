@@ -756,6 +756,17 @@ lua_lv_obj_update_layout(lua_State *L)
 	return (0);
 }
 
+static int
+lua_lv_obj_set_flex_flow(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_flex_flow_t flow = luaL_checkinteger(L, 2);
+
+	lv_obj_set_flex_flow(obj, flow);
+
+	return (0);
+}
+
 static lv_coord_t *
 lua_lv_obj_set_grid_array_dsc(lua_State *L, int idx)
 {
@@ -1788,6 +1799,8 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	{ "align",		lua_lv_obj_align },
 	{ "align_to",		lua_lv_obj_align_to },
 	{ "update_layout",	lua_lv_obj_update_layout },
+
+	{ "set_flex_flow",	lua_lv_obj_set_flex_flow },
 
 	{ "set_grid_array",	lua_lv_obj_set_grid_array },
 	{ "set_grid_cell",	lua_lv_obj_set_grid_cell },
