@@ -2333,6 +2333,27 @@ static const struct lua_lv_constant lua_lv_event_t[] = {
 	{ "PREPROCESS",		LV_EVENT_PREPROCESS },
 };
 
+static const struct lua_lv_constant lua_lv_flex_flow_t[] = {
+	{ "ROW",		LV_FLEX_FLOW_ROW },
+	{ "COLUMN",		LV_FLEX_FLOW_COLUMN },
+	{ "ROW_WRAP",		LV_FLEX_FLOW_ROW_WRAP },
+	{ "ROW_REVERSE",	LV_FLEX_FLOW_ROW_REVERSE },
+	{ "ROW_WRAP_REVERSE",	LV_FLEX_FLOW_ROW_WRAP_REVERSE },
+	{ "COLUMN_WRAP",	LV_FLEX_FLOW_COLUMN_WRAP },
+	{ "COLUMN_REVERSE",	LV_FLEX_FLOW_COLUMN_REVERSE },
+	{ "COLUMN_WRAP_REVERSE",
+				LV_FLEX_FLOW_COLUMN_WRAP_REVERSE },
+};
+
+static const struct lua_lv_constant lua_lv_flex_align_t[] = {
+	{ "START",		LV_FLEX_ALIGN_START },
+	{ "END",		LV_FLEX_ALIGN_END },
+	{ "CENTER",		LV_FLEX_ALIGN_CENTER },
+	{ "SPACE_EVENLY",	LV_FLEX_ALIGN_SPACE_EVENLY },
+	{ "SPACE_AROUND",	LV_FLEX_ALIGN_SPACE_AROUND },
+	{ "SPACE_BETWEEN",	LV_FLEX_ALIGN_SPACE_BETWEEN },
+};
+
 static const struct lua_lv_constant lua_lv_grid_align_t[] = {
 	{ "START",		LV_GRID_ALIGN_START },
 	{ "CENTER",		LV_GRID_ALIGN_CENTER },
@@ -2355,6 +2376,8 @@ static const struct lua_lv_constants lua_lv_constants_table[] = {
 	LUA_LV_CONSTANTS("ALIGN",	lua_lv_align_t),
 	LUA_LV_CONSTANTS("DIR",		lua_lv_dir_t),
 	LUA_LV_CONSTANTS("EVENT",	lua_lv_event_t),
+	LUA_LV_CONSTANTS("FLEX_FLOW",	lua_lv_flex_flow_t),
+	LUA_LV_CONSTANTS("FLEX_ALIGN",	lua_lv_flex_flow_t),
 	LUA_LV_CONSTANTS("GRID_ALIGN",	lua_lv_grid_align_t),
 
 	LUA_LV_CONSTANTS("BAR_MODE",	lua_lv_bar_mode_t),
