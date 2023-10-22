@@ -59,6 +59,8 @@ struct lua_lv_constants {
 #define LUA_LV_OBJ_STR		"'" LUA_LV_OBJ_T "'"
 static const char lua_lv_obj_type[] = LUA_LV_OBJ_T;
 
+static const char lua_lv_style_type[] = "lv_style_t";
+
 static const char lua_lv_state[] = "_lua_lv_state";
 
 struct lua_lv_obj {
@@ -1337,7 +1339,7 @@ static struct lua_lv_style lua_lv_style_flex_grow = {
 };
 
 static void
-lua_lv_style_set(lua_State *L, int idx, const struct lua_lv_style *s)
+lua_lv_style_prop_set(lua_State *L, int idx, const struct lua_lv_style *s)
 {
 	lua_pushstring(L, s->name);
 	lua_pushlightuserdata(L, (void *)s);
@@ -1351,24 +1353,98 @@ lua_lv_styles_init(lua_State *L)
 
 	lua_newtable(L);
 	for (i = 0; i < nitems(lua_lv_styles); i++)
-		lua_lv_style_set(L, -3, &lua_lv_styles[i]);
+		lua_lv_style_prop_set(L, -3, &lua_lv_styles[i]);
 
 	lua_lv_style_flex_flow.prop = LV_STYLE_FLEX_FLOW;
-	lua_lv_style_set(L, -3, &lua_lv_style_flex_flow);
+	lua_lv_style_prop_set(L, -3, &lua_lv_style_flex_flow);
 
 	lua_lv_style_flex_main_place.prop = LV_STYLE_FLEX_MAIN_PLACE;
-	lua_lv_style_set(L, -3, &lua_lv_style_flex_main_place);
+	lua_lv_style_prop_set(L, -3, &lua_lv_style_flex_main_place);
 
 	lua_lv_style_flex_cross_place.prop = LV_STYLE_FLEX_CROSS_PLACE;
-	lua_lv_style_set(L, -3, &lua_lv_style_flex_cross_place);
+	lua_lv_style_prop_set(L, -3, &lua_lv_style_flex_cross_place);
 
 	lua_lv_style_flex_track_place.prop = LV_STYLE_FLEX_TRACK_PLACE;
-	lua_lv_style_set(L, -3, &lua_lv_style_flex_track_place);
+	lua_lv_style_prop_set(L, -3, &lua_lv_style_flex_track_place);
 
 	lua_lv_style_flex_grow.prop = LV_STYLE_FLEX_GROW;
-	lua_lv_style_set(L, -3, &lua_lv_style_flex_grow);
+	lua_lv_style_prop_set(L, -3, &lua_lv_style_flex_grow);
 
 	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+}
+
+static int
+lua_lv_style_create(lua_State *L)
+{
+	lv_style_t *style;
+
+	style = lua_newuserdata(L, sizeof(*style));
+	lv_style_init(style);
+	luaL_setmetatable(L, lua_lv_style_type);
+
+	LVDPRINTF("style:%p", style);
+
+	/* once a style is created it should never go away */
+	lua_newtable(L);
+	lua_pushvalue(L, -2);
+	lua_rawsetp(L, -2, style);
+
+	lua_rawsetp(L, LUA_REGISTRYINDEX, style);
+
+	return (1);
+}
+
+static int
+lua_lv_style__index(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	const char *key = lua_tostring(L, 2);
+
+	if (lua_getmetatable(L, -2)) {
+		lua_pushstring(L, key);
+		lua_rawget(L, -2);
+	} else
+		lua_pushnil(L);
+
+	return (1);
+}
+
+static int
+lua_lv_style__newindex(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	LVDPRINTF("style:%p, gettop():%d", style, lua_gettop(L));
+	return (0);
+}
+
+static int
+lua_lv_style__gc(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	LVDPRINTF("style:%p", style);
+	lv_style_reset(style);
+	return (0);
+}
+
+static int
+lua_lv_style_set(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	const struct lua_lv_style *s;
+	lv_style_value_t v;
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+	lua_pushvalue(L, 2);
+	lua_rawget(L, -2);
+
+	s = lua_touserdata(L, -1);
+	luaL_argcheck(L, s != NULL, 2, "unknown style property");
+
+	v = s->check(L, 3);
+
+	lv_style_set_prop(style, s->prop, v);
+
+	return (0);
 }
 
 static int
@@ -1399,6 +1475,28 @@ lua_lv_obj_set_style(lua_State *L)
 	v = s->check(L, 3);
 
 	lv_obj_set_local_style_prop(obj, s->prop, v, selector);
+
+	return (0);
+}
+
+static int
+lua_lv_obj_add_style(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_style_t *style = luaL_checkudata(L, 2, lua_lv_style_type);
+	int selector = LV_PART_MAIN;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		selector = luaL_checkinteger(L, 3);
+		/* FALLTHROUGH */
+	case 2:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lv_obj_add_style(obj, style, selector);
 
 	return (0);
 }
@@ -1446,6 +1544,7 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	{ "disabled",		lua_lv_obj_disabled },
 
 	{ "set_style",		lua_lv_obj_set_style },
+	{ "add_style",		lua_lv_obj_add_style },
 
 	{ NULL,			NULL }
 };
@@ -2089,6 +2188,8 @@ static const luaL_Reg lua_lv[] = {
 	{ "slider",		lua_lv_slider_create },
 	{ "switch",		lua_lv_switch_create },
 
+	{ "style",		lua_lv_style_create },
+
 	{ "scr_act",		lua_lv_scr_act },
 	{ "hor_res",		lua_lv_hor_res },
 	{ "ver_res",		lua_lv_ver_res },
@@ -2147,6 +2248,29 @@ luaopen_lv(lua_State *L)
 
 		lua_pushliteral(L, "__metatable");
 		lua_pushliteral(L, "nope");
+		lua_settable(L, -3);
+	}
+	lua_pop(L, 1);
+
+	if (luaL_newmetatable(L, lua_lv_style_type)) {
+		lua_pushliteral(L, "__gc");
+		lua_pushcfunction(L, lua_lv_style__gc);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__index");
+		lua_pushcfunction(L, lua_lv_style__index);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__newindex");
+		lua_pushcfunction(L, lua_lv_style__newindex);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__metatable");
+		lua_pushliteral(L, "nope");
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "set");
+		lua_pushcfunction(L, lua_lv_style_set);
 		lua_settable(L, -3);
 	}
 	lua_pop(L, 1);
