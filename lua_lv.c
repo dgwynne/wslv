@@ -546,6 +546,15 @@ lua_lv_obj_remove_style_all(lua_State *L)
 }
 
 static int
+lua_lv_obj_invalidate(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	LVDPRINTF("obj:%p", obj);
+	lv_obj_invalidate(obj);
+	return (0);
+}
+
+static int
 lua_lv_obj_size(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
@@ -1448,6 +1457,52 @@ lua_lv_style_set(lua_State *L)
 }
 
 static int
+lua_lv_style_inherit(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	const struct lua_lv_style *s;
+	lv_style_value_t v;
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+	lua_pushvalue(L, 2);
+	lua_rawget(L, -2);
+
+	s = lua_touserdata(L, -1);
+	luaL_argcheck(L, s != NULL, 2, "unknown style property");
+
+	lv_style_set_prop_meta(style, s->prop, LV_STYLE_PROP_META_INHERIT);
+
+	return (0);
+}
+
+static int
+lua_lv_style_remove(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	const struct lua_lv_style *s;
+	lv_style_value_t v;
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+	lua_pushvalue(L, 2);
+	lua_rawget(L, -2);
+
+	s = lua_touserdata(L, -1);
+	luaL_argcheck(L, s != NULL, 2, "unknown style property");
+
+	lv_style_remove_prop(style, s->prop);
+
+	return (0);
+}
+
+static int
+lua_lv_style_reset(lua_State *L)
+{
+	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
+	lv_style_reset(style);
+	return (0);
+}
+
+static int
 lua_lv_obj_set_style(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
@@ -1511,6 +1566,7 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	{ "del_async",		lua_lv_obj_del_async },
 	{ "del_delayed",	lua_lv_obj_del_delayed },
 	{ "remove_style_all",	lua_lv_obj_remove_style_all },
+	{ "invalidate",		lua_lv_obj_invalidate },
 
 	{ "size",		lua_lv_obj_size },
 	{ "refr_size",		lua_lv_obj_refr_size },
@@ -2271,6 +2327,18 @@ luaopen_lv(lua_State *L)
 
 		lua_pushliteral(L, "set");
 		lua_pushcfunction(L, lua_lv_style_set);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "inherit");
+		lua_pushcfunction(L, lua_lv_style_inherit);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "remove");
+		lua_pushcfunction(L, lua_lv_style_remove);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "reset");
+		lua_pushcfunction(L, lua_lv_style_reset);
 		lua_settable(L, -3);
 	}
 	lua_pop(L, 1);
