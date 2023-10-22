@@ -1315,14 +1315,13 @@ lua_lv_style_font(lua_State *L, int idx)
 	lv_style_value_t v;
 	lv_font_t *f;
 
-LVDPRINTF("gettop:%d", lua_gettop(L));
 	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
 	lua_pushvalue(L, idx);
 	lua_rawget(L, -2);
 
 	f = lua_touserdata(L, -1);
 	luaL_argcheck(L, f != NULL, idx, "unknown font");
-LVDPRINTF("gettop:%d", lua_gettop(L));
+	lua_pop(L, 2);
 
 	v.ptr = f;
 
