@@ -1173,6 +1173,52 @@ lua_lv_color(lua_State *L)
 }
 
 static int
+lua_lv_palette_lighten(lua_State *L)
+{
+	lv_color_t c;
+	int palette;
+	int v;
+
+	if (lua_gettop(L) != 2)
+		return luaL_error(L, "invalid number of arguments");
+
+	palette = lua_lv_palette_get(L, 1);
+	if (palette == -1)
+		return luaL_error(L, "unknown palette");
+
+	v = luaL_checkinteger(L, 2);
+	luaL_argcheck(L, v >= 1 && v <= 5, 2, "valid range is 1 to 5");
+
+	c = lv_palette_lighten(palette, v);
+
+	lua_pushinteger(L, c.full & 0xffffff);
+	return (1);
+}
+
+static int
+lua_lv_palette_darken(lua_State *L)
+{
+	lv_color_t c;
+	int palette;
+	int v;
+
+	if (lua_gettop(L) != 2)
+		return luaL_error(L, "invalid number of arguments");
+
+	palette = lua_lv_palette_get(L, 1);
+	if (palette == -1)
+		return luaL_error(L, "unknown palette");
+
+	v = luaL_checkinteger(L, 2);
+	luaL_argcheck(L, v >= 1 && v <= 4, 2, "valid range is 1 to 4");
+
+	c = lv_palette_darken(palette, v);
+
+	lua_pushinteger(L, c.full & 0xffffff);
+	return (1);
+}
+
+static int
 lua_lv_grid_fr(lua_State *L)
 {
 	lua_pushinteger(L, lv_grid_fr(luaL_checkinteger(L, 1)));
@@ -2550,6 +2596,8 @@ static const luaL_Reg lua_lv[] = {
 
 	{ "pct",		lua_lv_pct },
 	{ "color",		lua_lv_color },
+	{ "palette_lighten",	lua_lv_palette_lighten },
+	{ "palette_darken",	lua_lv_palette_darken },
 
 	{ NULL,			NULL }
 };
