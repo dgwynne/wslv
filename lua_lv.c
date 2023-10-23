@@ -1599,16 +1599,30 @@ lua_lv_styles_init(lua_State *L)
 	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
 }
 
+static int lua_lv_style_set_table(lua_State *, lv_style_t *, int);
+
 static int
 lua_lv_style_create(lua_State *L)
 {
 	lv_style_t *style;
+	int set = 0;
+
+	switch (lua_gettop(L)) {
+	case 1:
+		set = 1;
+		/* FALLTHROUGH */
+	case 0:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
 
 	style = lua_newuserdata(L, sizeof(*style));
 	lv_style_init(style);
 	luaL_setmetatable(L, lua_lv_style_type);
 
-	LVDPRINTF("style:%p", style);
+	if (set)
+		lua_lv_style_set_table(L, style, 1);
 
 	/* once a style is created it should never go away */
 	lua_newtable(L);
@@ -1653,11 +1667,50 @@ lua_lv_style__gc(lua_State *L)
 }
 
 static int
+lua_lv_style_set_table(lua_State *L, lv_style_t *style, int idx)
+{
+	const struct lua_lv_style *s;
+	lv_style_value_t v;
+
+	luaL_checktype(L, idx, LUA_TTABLE);
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+
+	lua_pushnil(L);
+	while (lua_next(L, idx)) {
+		lua_pushvalue(L, -2);
+		lua_rawget(L, -4);
+
+		s = lua_touserdata(L, -1);
+		if (s == NULL) {
+			return luaL_error(L, "unknown style property %s",
+			    lua_tostring(L, -2));
+		}
+
+		v = s->check(L, lua_gettop(L) - 1);
+		lv_style_set_prop(style, s->prop, v);
+
+		lua_pop(L, 2); /* pop value + s udata, keep key */
+	}
+	lua_pop(L, 1);
+
+	return (0);
+}
+
+static int
 lua_lv_style_set(lua_State *L)
 {
 	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
 	const struct lua_lv_style *s;
 	lv_style_value_t v;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		break;
+	case 2:
+		return lua_lv_style_set_table(L, style, 2);
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
 
 	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
 	lua_pushvalue(L, 2);
