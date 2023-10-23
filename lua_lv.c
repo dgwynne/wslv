@@ -1209,6 +1209,7 @@ lua_lv_ft_create(lua_State *L)
 	ft_info->weight = weight;
 	ft_info->style = style;
 	ft_info->mem = NULL;
+	ft_info->font = NULL;
 
 	luaL_setmetatable(L, lua_lv_ft_type);
 
