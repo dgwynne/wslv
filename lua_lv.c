@@ -757,6 +757,16 @@ lua_lv_obj_update_layout(lua_State *L)
 }
 
 static int
+lua_lv_obj_set_ext_click_area(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+
+	lv_obj_set_ext_click_area(obj, luaL_checkinteger(L, 2));
+
+	return (0);
+}
+
+static int
 lua_lv_obj_set_flex_flow(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
@@ -1899,6 +1909,7 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	{ "align",		lua_lv_obj_align },
 	{ "align_to",		lua_lv_obj_align_to },
 	{ "update_layout",	lua_lv_obj_update_layout },
+	{ "set_ext_click_area",	lua_lv_obj_set_ext_click_area },
 
 	{ "set_flex_flow",	lua_lv_obj_set_flex_flow },
 
