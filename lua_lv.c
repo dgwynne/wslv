@@ -69,9 +69,10 @@ struct lua_lv_obj {
 };
 
 #define LUA_LV_OBJ_REF_LOBJ		1
-#define LUA_LV_OBJ_REF_EVENTS		2
-#define LUA_LV_OBJ_REF_GRID_COL_DSC	3
-#define LUA_LV_OBJ_REF_GRID_ROW_DSC	4
+#define LUA_LV_OBJ_REF_USER_DATA	2
+#define LUA_LV_OBJ_REF_EVENTS		3
+#define LUA_LV_OBJ_REF_GRID_COL_DSC	4
+#define LUA_LV_OBJ_REF_GRID_ROW_DSC	5
 
 static void
 lua_lv_obj_delete_cb(lv_event_t *e)
@@ -454,8 +455,18 @@ static int
 lua_lv_obj__index(lua_State *L)
 {
 	struct lua_lv_obj *lobj = luaL_checkudata(L, 1, lua_lv_obj_type);
-	const char *key = lua_tostring(L, 2);
 	lv_obj_t *obj = lobj->lv_obj;
+	const char *key = lua_tostring(L, 2);
+
+	if (strcmp(key, "data") == 0) {
+		int type = lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
+		luaL_argcheck(L, type == LUA_TTABLE, 1, "lv obj has no table");
+
+		lua_rawgeti(L, -1, LUA_LV_OBJ_REF_USER_DATA);
+		lua_remove(L, -2);
+
+		return (1);
+	}
 
 	if (obj != NULL) {
 		const lv_obj_class_t *c;
@@ -486,6 +497,18 @@ static int
 lua_lv_obj__newindex(lua_State *L)
 {
 	struct lua_lv_obj *lobj = luaL_checkudata(L, 1, lua_lv_obj_type);
+	lv_obj_t *obj = lobj->lv_obj;
+	const char *key = lua_tostring(L, 2);
+
+	if (strcmp(key, "data") == 0) {
+		int type = lua_rawgetp(L, LUA_REGISTRYINDEX, obj);
+		luaL_argcheck(L, type == LUA_TTABLE, 1, "lv obj has no table");
+
+		lua_pushvalue(L, 3);
+		lua_rawseti(L, -2, LUA_LV_OBJ_REF_USER_DATA);
+
+		return (0);
+	}
 	LVDPRINTF("lobj:%p, gettop():%d", lobj, lua_gettop(L));
 	return (0);
 }
