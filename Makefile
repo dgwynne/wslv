@@ -141,32 +141,32 @@ OBJS+=${LVGL_DEMO_SRCS:T:.c=.o}
 
 # lua
 
-LUAPKG=lua54
+LUAPKG=lua53
 LUA_CFLAGS!=pkg-config --cflags ${LUAPKG}
 LUA_LDFLAGS!=pkg-config --libs ${LUAPKG}
+
+LUA_LV_SRCS=lua_lv.c
+
+.for S in ${LUA_LV_SRCS}
+${S:.c=.o}: ${S}
+	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -o ${.TARGET} ${.IMPSRC}
+.endfor
+
+OBJS+=${LUA_LV_SRCS:.c=.o}
 
 # luavgl
 
 LUAVGL_DIR=${.CURDIR}/luavgl
-LUAVGL_SRCDIR=${LUAVGL_DIR}/src
+#LUAVGL_SRCDIR=${LUAVGL_DIR}/src
 
-LUAVGL_SRCS = luavgl.c
+#LUAVGL_SRCS = luavgl.c
 
-.for S in ${LUAVGL_SRCS}
-${S:T:.c=.o}: ${LUAVGL_SRCDIR}/${S}
-	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -I${LUAVGL_SRCDIR} -o ${.TARGET} ${.IMPSRC}
-.endfor
+#.for S in ${LUAVGL_SRCS}
+#${S:T:.c=.o}: ${LUAVGL_SRCDIR}/${S}
+#	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -I${LUAVGL_SRCDIR} -o ${.TARGET} ${.IMPSRC}
+#.endfor
 
-OBJS+=${LUAVGL_SRCS:T:.c=.o}
-
-# wslv and luavgl glue
-
-WSLUAV_SRCS=wsluav.c
-
-${WSLUAV_SRCS:.c=.o}: ${WSLUAV_SRCS}
-	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -I${LUAVGL_SRCDIR} -o ${.TARGET} ${.IMPSRC}
-
-OBJS+=${WSLUAV_SRCS:.c=.o}
+#OBJS+=${LUAVGL_SRCS:T:.c=.o}
 
 # steal the mouse cursor
 
@@ -226,6 +226,7 @@ PROG=wslv
 SRCS=wslv.c
 MAN=
 
+CFLAGS+=${LUA_CFLAGS}
 LDADD+=-levent ${LUA_LDFLAGS}
 DPADD+=${LIBEVENT}
 

@@ -38,10 +38,14 @@
 
 #include <event.h>
 
+#include <lua.h>
+#include <lauxlib.h>
+#include <lualib.h>
+
 #include "lvgl/lvgl.h"
 #include "lvgl/demos/lv_demos.h"
 #include "wslv_drm.h"
-#include "wslv_luavgl.h"
+#include "lua_lv.h"
 
 #include "amqtt/amqtt.h"
 
@@ -179,6 +183,11 @@ struct wslv_softc {
 	struct event			 sc_mqtt_tele_period;
 
 	struct event			 sc_clocktick;
+
+	lua_State			*sc_L;
+	const char			*sc_L_script;
+	int				 sc_L_reload;
+	int				 sc_L_in_cmnd;
 };
 
 struct wslv_softc _wslv = {
@@ -204,7 +213,6 @@ static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
 static void		wslv_idle(int, short, void *);
 static void		wslv_wake(struct wslv_softc *);
-static void		wslv_clocktick(int, short, void *);
 
 static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
 			    lv_color_t *);
@@ -219,6 +227,15 @@ static void		wslv_mqtt_connect(struct wslv_softc *);
 
 static void		wslv_mqtt_tele(struct wslv_softc *);
 static void		wslv_mqtt_tele_period(int, short, void *);
+
+static void		wslv_lua_init(struct wslv_softc *);
+static void		wslv_lua_reload(struct wslv_softc *);
+static void		wslv_lua_reload_cb(lv_event_t *);
+
+static int		wslv_luaopen(struct wslv_softc *, lua_State *);
+static void		wslv_lua_cmnd(struct wslv_softc *,
+			    const char *, size_t, const char *, size_t);
+static void		wslv_lua_clocktick(int, short, void *);
 
 static void __dead
 usage(void)
@@ -238,7 +255,6 @@ main(int argc, char *argv[])
 {
 	char hostname[MAXHOSTNAMELEN];
 	const char *devname = WS_DISPLAY;
-	const char *lfile = NULL;
 	const char *errstr;
 	int rv = 0;
 	size_t x, y;
@@ -247,7 +263,7 @@ main(int argc, char *argv[])
 
 	TAILQ_INIT(&sc->sc_pointer_list);
 
-	while ((ch = getopt(argc, argv, "46d:h:i:K:l:M:p:W:")) != -1) {
+	while ((ch = getopt(argc, argv, "46d:h:i:K:l:M:p:rW:")) != -1) {
 		switch (ch) {
 		case '4':
 			sc->sc_mqtt_family = AF_INET;
@@ -275,13 +291,16 @@ main(int argc, char *argv[])
 			}
 			break;
 		case 'l':
-			lfile = optarg;
+			sc->sc_L_script = optarg;
 			break;
 		case 'M':
 			wslv_pointer_add(sc, optarg);
 			break;
 		case 'p':
 			sc->sc_mqtt_serv = optarg;
+			break;
+		case 'r':
+			sc->sc_L_reload = 1;
 			break;
 		case 'W':
 			devname = optarg;
@@ -298,7 +317,7 @@ main(int argc, char *argv[])
 	if (argc != 0)
 		usage();
 
-	if (lfile == NULL) {
+	if (sc->sc_L_script == NULL) {
 		warnx("lua script not specified");
 		usage();
 	}
@@ -409,13 +428,28 @@ main(int argc, char *argv[])
 //	    lv_palette_main(LV_PALETTE_RED),
 //	    LV_THEME_DEFAULT_DARK, LV_FONT_DEFAULT);
 
-	wsluav(sc, lv_scr_act(), lfile);
+	if (sc->sc_L_reload) {
+		lv_obj_t *btn, *label;
+
+		btn = lv_btn_create(lv_layer_sys());
+		label = lv_label_create(btn);
+
+		lv_label_set_text(label, "Reload");
+		lv_obj_center(label);
+
+		lv_obj_align(btn, LV_ALIGN_BOTTOM_RIGHT, -16, -16);
+		lv_obj_add_event_cb(btn, wslv_lua_reload_cb,
+		    LV_EVENT_CLICKED, sc);
+	}
+
+	wslv_lua_init(sc);
+	//wsluav(sc, lv_scr_act(), lfile);
 	//lv_demo_widgets();
 	//lv_demo_keypad_encoder();
 	//lv_demo_benchmark();
 
-	evtimer_set(&sc->sc_clocktick, wslv_clocktick, sc);
-	wslv_clocktick(0, 0, sc);
+	evtimer_set(&sc->sc_clocktick, wslv_lua_clocktick, sc);
+	wslv_lua_clocktick(0, 0, sc);
 
 	event_dispatch();
 
@@ -689,17 +723,6 @@ wslv_tick(int nil, short events, void *arg)
 	evtimer_add(&sc->sc_tick, &rate);
 
 	lv_timer_handler();
-}
-
-static void
-wslv_clocktick(int nil, short events, void *arg)
-{
-	struct wslv_softc *sc = arg;
-	static const struct timeval rate = { 1, 0 };
-
-	evtimer_add(&sc->sc_clocktick, &rate);
-
-	wsluav_clocktick(sc);
 }
 
 static void
@@ -1227,7 +1250,7 @@ wslv_mqtt_on_message(struct mqtt_conn *mc,
 	if (cmnd != NULL)
 		(*cmnd->handler)(sc, name, payload, payload_len);
 	else
-		wsluav_cmnd(sc, name, name_len, payload, payload_len);
+		wslv_lua_cmnd(sc, name, name_len, payload, payload_len);
 
 drop:
         free(topic);
@@ -1278,8 +1301,10 @@ wslv_tele(struct wslv_softc *sc, const char *suffix, size_t suffix_len,
 	if (rv == -1)
 		errx(1, "mqtt tele topic");
 	topic_len = rv;
-	if (topic_len >= sizeof(topic))
-		errx(1, "mqtt_tele topic len");
+	if (topic_len >= sizeof(topic)) {
+		warnx("mqtt_tele topic len");
+		return;
+	}
 
 	if (mqtt_publish(mc, topic, topic_len, payload, payload_len,
 	    MQTT_QOS0, MQTT_NORETAIN) == -1)
@@ -1355,5 +1380,199 @@ wslv_ms(void)
 const lv_font_t *
 wslv_font_default(void)
 {
-	return (&lv_font_montserrat_14);
+	return (&lv_font_montserrat_12_subpx);
+}
+
+/*
+ * lua binding
+ */
+
+static int
+wslv_lua_panic(lua_State *L)
+{
+	warnx("lua panic: %s", lua_tostring(L, -1));
+	return (0);
+}
+
+static void
+wslv_lua_init(struct wslv_softc *sc)
+{
+	const char *lfile = sc->sc_L_script;
+	lua_State *L;
+	int status;
+
+	L = luaL_newstate();
+	if (L == NULL)
+		errx(1, "unable to create new lua state");
+
+	luaL_openlibs(L);
+	lua_atpanic(L, wslv_lua_panic);
+
+	luaL_requiref(L, "lv", luaopen_lv, 1);
+	lua_pop(L, 1);
+
+	wslv_luaopen(sc, L); /* wslv.tele etc */
+
+	status = luaL_loadfile(L, lfile);
+	if (status != 0) {
+		switch (status) {
+		case LUA_ERRSYNTAX:
+			warnx("unable to load %s: %s", lfile,
+			    lua_tostring(L, -1));
+			break;
+		case LUA_ERRMEM:
+			warnx("unable to load %s: memory allocation error",
+			    lfile);
+			break;
+		case LUA_ERRFILE:
+			warnx("unable to load %s: open or read failure",
+			    lfile);
+			break;
+		default:
+			warnx("unable to load %s: error %d", lfile, status);
+			break;
+		}
+		goto close;
+	}
+
+	status = lua_pcall(L, 0, 0, 0);
+	if (status != 0) {
+		switch (status) {
+		case LUA_ERRRUN:
+		case LUA_ERRMEM:
+		case LUA_ERRERR:
+			warnx("%s: %s", lfile, lua_tostring(L, -1));
+			break;
+		default:
+			warnx("%s: pcall failed: unknown status %d",
+			    lfile, status);
+			break;
+		}
+
+		goto close;
+	}
+
+	sc->sc_L = L;
+	return;
+
+close:
+	lua_close(L);
+}
+
+static void
+wslv_lua_reload(struct wslv_softc *sc)
+{
+	lua_State *L = sc->sc_L;
+
+	if (L != NULL) {
+		sc->sc_L = NULL;
+		lua_close(L);
+	}
+
+	wslv_lua_init(sc);
+}
+
+static void
+wslv_lua_reload_cb(lv_event_t *e)
+{
+	struct wslv_softc *sc = lv_event_get_user_data(e);
+
+	wslv_lua_reload(sc);
+}
+
+/*
+ * wslv lua bits
+ */
+
+static void
+wslv_lua_clocktick(int nil, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+	lua_State *L = sc->sc_L;
+	static const struct timeval rate = { 1, 0 };
+	int rv;
+
+	evtimer_add(&sc->sc_clocktick, &rate);
+
+	if (L == NULL)
+		return;
+
+	lua_getglobal(L, "clocktick");
+	if (!lua_isfunction(L, -1))
+		return;
+
+	rv = lua_pcall(L, 0, 0, 0);
+	if (rv != 0)
+		warnx("lua pcall clocktick %s", lua_tostring(L, -1));
+
+	lua_pop(L, lua_gettop(L));
+}
+
+static void
+wslv_lua_cmnd(struct wslv_softc *sc, const char *topic, size_t topic_len,
+    const char *payload, size_t payload_len)
+{
+	lua_State *L = sc->sc_L;
+	int rv;
+
+	if (L == NULL)
+		return;
+
+	lua_getglobal(L, "cmnd");
+	if (!lua_isfunction(L, -1))
+		return;
+
+	lua_pushlstring(L, topic, topic_len);
+	lua_pushlstring(L, payload, payload_len);
+
+	sc->sc_L_in_cmnd = 1;
+	rv = lua_pcall(L, 2, 0, 0);
+	sc->sc_L_in_cmnd = 0;
+
+	if (rv != 0)
+		warnx("lua pcall cmnd %s", lua_tostring(L, -1));
+
+	lua_pop(L, lua_gettop(L));
+}
+
+static int
+wslv_luaL_tele(lua_State *L)
+{
+	struct wslv_softc *sc = &_wslv; /* XXX */
+	const char *topic, *payload;
+	size_t topic_len, payload_len;
+
+	topic = lua_tolstring(L, 1, &topic_len);
+	payload = lua_tolstring(L, 2, &payload_len);
+
+	wslv_tele(sc, topic, topic_len, payload, payload_len);
+
+        return (0);
+}
+
+static int
+wslv_luaL_in_cmnd(lua_State *L)
+{
+	struct wslv_softc *sc = &_wslv; /* XXX */
+	lua_pushboolean(L, sc->sc_L_in_cmnd);
+        return (1);
+}
+
+static const luaL_Reg wslv_luaL[] = {
+	{ "tele",		wslv_luaL_tele },
+	{ "in_cmnd",		wslv_luaL_in_cmnd },
+
+        { NULL,                 NULL }
+};
+
+static int
+wslv_luaopen(struct wslv_softc *sc, lua_State *L)
+{
+	warnx("gettop:%d", lua_gettop(L));
+	luaL_newlib(L, wslv_luaL);
+	warnx("gettop:%d", lua_gettop(L));
+	lua_setglobal(L, "wslv");
+	warnx("gettop:%d", lua_gettop(L));
+
+	return (0);
 }
