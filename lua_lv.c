@@ -2340,6 +2340,133 @@ static const luaL_Reg lua_lv_switch_methods[] = {
 };
 
 /*
+ * lv_tabview
+ */
+
+static int
+lua_lv_tabview_create(lua_State *L)
+{
+	lv_obj_t *parent = NULL;
+	lv_dir_t tab_pos;
+	lv_coord_t tab_size;
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	if (!lua_isnoneornil(L, 1))
+		parent = lua_lv_check_obj(L, 1);
+
+	tab_pos = luaL_checkinteger(L, 2);
+	tab_size = luaL_checkinteger(L, 3);
+
+	obj = lv_tabview_create(parent, tab_pos, tab_size);
+	if (obj == NULL)
+		return luaL_error(L, "lv_tabview_create failed");
+
+	if (parent != NULL)
+		lua_pop(L, 1);
+
+	lobj = lua_lv_obj_register(L, obj);
+
+	LVDPRINTF("parent:%p, obj:%p, lobj:%p", parent, obj, lobj);
+
+	return (1);
+}
+
+static int
+lua_lv_tabview_add_tab(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tabview_class);
+	const char *name = luaL_checkstring(L, 2);
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	obj = lv_tabview_add_tab(tv, name);
+	if (obj == NULL)
+		return luaL_error(L, "lv_tabview_add_tab failed");
+
+	lobj = lua_lv_obj_getp(L, obj);
+
+	LVDPRINTF("tabview:%p, obj:%p, lobj:%p", tv, obj, lobj);
+
+	return (1);
+}
+
+static int
+lua_lv_tabview_get_content(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tabview_class);
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	obj = lv_tabview_get_content(tv);
+	if (obj == NULL)
+		return luaL_error(L, "lv_tabview_get_content failed");
+
+	lobj = lua_lv_obj_getp(L, obj);
+
+	LVDPRINTF("tabview:%p, obj:%p, lobj:%p", tv, obj, lobj);
+
+	return (1);
+}
+
+static int
+lua_lv_tabview_get_tab_btns(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tabview_class);
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	obj = lv_tabview_get_tab_btns(tv);
+	if (obj == NULL)
+		return luaL_error(L, "lv_tabview_get_tab_btns failed");
+
+	lobj = lua_lv_obj_getp(L, obj);
+
+	LVDPRINTF("tabview:%p, obj:%p, lobj:%p", tv, obj, lobj);
+
+	return (1);
+}
+
+static int
+lua_lv_tabview_act(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tabview_class);
+	uint32_t id;
+	lv_anim_enable_t anim = LV_ANIM_OFF;
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		anim = lua_toboolean(L, 3) ? LV_ANIM_ON : LV_ANIM_OFF;
+		/* FALLTHROUGH */
+	case 2:
+		id = luaL_checkinteger(L, 2);
+		lv_tabview_set_act(tv, id, anim);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	id = lv_tabview_get_tab_act(tv);
+	lua_pushinteger(L, id);
+
+	return (1);
+}
+
+static const luaL_Reg lua_lv_tabview_methods[] = {
+	{ "add_tab",		lua_lv_tabview_add_tab },
+	{ "get_content",	lua_lv_tabview_get_content },
+	{ "get_tab_btns",	lua_lv_tabview_get_tab_btns },
+	{ "act",		lua_lv_tabview_act },
+	{ "tab_act",		lua_lv_tabview_act },
+
+	{ NULL,			NULL }
+};
+
+/*
  * widgets
  */
 
@@ -2356,6 +2483,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_label_class,	lua_lv_label_methods },
 	{ &lv_slider_class,	lua_lv_slider_methods },
 	{ &lv_switch_class,	lua_lv_switch_methods },
+	{ &lv_tabview_class,	lua_lv_tabview_methods },
 };
 
 /*
@@ -2660,6 +2788,8 @@ static const luaL_Reg lua_lv[] = {
 	{ "label",		lua_lv_label_create },
 	{ "slider",		lua_lv_slider_create },
 	{ "switch",		lua_lv_switch_create },
+
+	{ "tabview",		lua_lv_tabview_create },
 
 	{ "style",		lua_lv_style_create },
 	{ "ft",			lua_lv_ft_create },
