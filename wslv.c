@@ -1490,6 +1490,7 @@ wslv_lua_clocktick(int nil, short events, void *arg)
 	struct wslv_softc *sc = arg;
 	lua_State *L = sc->sc_L;
 	static const struct timeval rate = { 1, 0 };
+	int top;
 	int rv;
 
 	evtimer_add(&sc->sc_clocktick, &rate);
@@ -1497,15 +1498,18 @@ wslv_lua_clocktick(int nil, short events, void *arg)
 	if (L == NULL)
 		return;
 
+	top = lua_gettop(L);
+
 	lua_getglobal(L, "clocktick");
 	if (!lua_isfunction(L, -1))
-		return;
+		goto pop;
 
 	rv = lua_pcall(L, 0, 0, 0);
 	if (rv != 0)
 		warnx("lua pcall clocktick %s", lua_tostring(L, -1));
 
-	lua_pop(L, lua_gettop(L));
+pop:
+	lua_settop(L, top);
 }
 
 static void
