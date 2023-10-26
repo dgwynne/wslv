@@ -6,7 +6,7 @@ for building touch screen interfaces.
 This implements LVGL drivers for the OpenBSD wsdisplay(4) or drm(4)
 frame buffer devices, and wsmouse(4) devices as a pointer. The
 program connects to an MQTT server, and provides integration between
-MQTT and LVGL via Lua and the luavgl library.
+MQTT and LVGL via Lua.
 
 ## But why?
 
@@ -19,9 +19,9 @@ Alternatively, a cheap mini PC and a touch screen mounted on the wall
 would also work.
 
 While LVGL and wscons provide the user interface, MQTT allows it
-to interact with other hardware or visa versa. Lua via luavgl
-provides a relatively easy scripting language to build an interface
-out of LVGL.
+to interact with other hardware or visa versa. Lua provides a
+relatively easy scripting language to build an interface out of
+LVGL.
 
 While it is possible to run a desktop environment and browser in
 kiosk mode to provide a user interface, integrating with the OpenBSD
@@ -34,7 +34,6 @@ Also, I'm an idiot and make up work for myself.
 ## Todo
 
 - Learn LVGL
-- Find and fix a use-after-free in the luavgl code
 
 ## How?
 
@@ -43,7 +42,7 @@ Also, I'm an idiot and make up work for myself.
 Anything that provides a framebuffer and a mouse/touchscreen should
 be Good Enough(tm).
 
-- Install Lua 5.4, libspng, and git via `pkg_add`
+- Install Lua 5.3, libspng, and git via `pkg_add`
 
 - Get the source code
 
@@ -108,6 +107,11 @@ The `wsdisplay(4)` device to use as the LVGL display. wslv will
 default to /dev/ttyC0. If the display appears to support DRM and
 Kernel Mode Setting, wslv will close the `wsdisplay(4)` device
 and try opening `/dev/dri/card0` instead.
+
+- `-r`
+
+Display a Reload button on the screen that triggers a reload of the
+Lua script used to control the interface.
 
 ## MQTT
 
