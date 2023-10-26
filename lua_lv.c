@@ -238,6 +238,12 @@ lua_lv_btn_create(lua_State *L)
 }
 
 static int
+lua_lv_checkbox_create(lua_State *L)
+{
+	return (lua_lv_obj_create_udata(L, lv_checkbox_create));
+}
+
+static int
 lua_lv_label_create(lua_State *L)
 {
 	return (lua_lv_obj_create_udata(L, lv_label_create));
@@ -2138,6 +2144,39 @@ static const luaL_Reg lua_lv_btn_methods[] = {
 };
 
 /*
+ * lv_checkbox
+ */
+
+static int
+lua_lv_checkbox_text(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_checkbox_class);
+	const char *str;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		str = luaL_checkstring(L, 2);
+		lv_checkbox_set_text(obj, str);
+		break;
+	case 1:
+		str = lv_checkbox_get_text(obj);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushstring(L, str);
+
+	return (1);
+}
+
+static const luaL_Reg lua_lv_checkbox_methods[] = {
+	{ "text",		lua_lv_checkbox_text },
+
+	{ NULL,			NULL }
+};
+
+/*
  * lv_label
  */
 
@@ -2313,6 +2352,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_obj_class,	lua_lv_obj_methods },
 	{ &lv_bar_class,	lua_lv_bar_methods },
 	{ &lv_btn_class,	lua_lv_btn_methods },
+	{ &lv_checkbox_class,	lua_lv_checkbox_methods },
 	{ &lv_label_class,	lua_lv_label_methods },
 	{ &lv_slider_class,	lua_lv_slider_methods },
 	{ &lv_switch_class,	lua_lv_switch_methods },
@@ -2616,6 +2656,7 @@ static const luaL_Reg lua_lv[] = {
 	{ "bar",		lua_lv_bar_create },
 	{ "btn",		lua_lv_btn_create },
 	{ "button",		lua_lv_btn_create },
+	{ "checkbox",		lua_lv_checkbox_create },
 	{ "label",		lua_lv_label_create },
 	{ "slider",		lua_lv_slider_create },
 	{ "switch",		lua_lv_switch_create },
