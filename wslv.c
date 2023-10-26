@@ -1513,14 +1513,17 @@ wslv_lua_cmnd(struct wslv_softc *sc, const char *topic, size_t topic_len,
     const char *payload, size_t payload_len)
 {
 	lua_State *L = sc->sc_L;
+	int top;
 	int rv;
 
 	if (L == NULL)
 		return;
 
+	top = lua_gettop(L);
+
 	lua_getglobal(L, "cmnd");
 	if (!lua_isfunction(L, -1))
-		return;
+		goto pop;
 
 	lua_pushlstring(L, topic, topic_len);
 	lua_pushlstring(L, payload, payload_len);
@@ -1532,7 +1535,8 @@ wslv_lua_cmnd(struct wslv_softc *sc, const char *topic, size_t topic_len,
 	if (rv != 0)
 		warnx("lua pcall cmnd %s", lua_tostring(L, -1));
 
-	lua_pop(L, lua_gettop(L));
+pop:
+	lua_settop(L, top);
 }
 
 static int
