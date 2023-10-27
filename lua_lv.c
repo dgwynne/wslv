@@ -1034,6 +1034,32 @@ lua_lv_obj_disabled(lua_State *L)
 }
 
 static int
+lua_lv_obj_enabled(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	lv_state_t state = LV_STATE_DISABLED;
+	int set;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		set = lua_toboolean(L, 2);
+		if (set)
+			lv_obj_clear_state(obj, state);
+		else
+			lv_obj_add_state(obj, state);
+		break;
+	case 1:
+		set = !lv_obj_has_state(obj, state);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushboolean(L, set);
+	return (1);
+}
+
+static int
 lua_lv_pct(lua_State *L)
 {
 	lua_pushinteger(L, lv_pct(luaL_checkinteger(L, 1)));
@@ -1963,6 +1989,7 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	/* these are convenience wrappers */
 	{ "checked",		lua_lv_obj_checked },
 	{ "disabled",		lua_lv_obj_disabled },
+	{ "enabled",		lua_lv_obj_enabled },
 
 	{ "set_style",		lua_lv_obj_set_style },
 	{ "add_style",		lua_lv_obj_add_style },
