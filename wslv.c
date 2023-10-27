@@ -1544,6 +1544,24 @@ pop:
 }
 
 static int
+wslv_luaL_publish(lua_State *L)
+{
+	struct wslv_softc *sc = &_wslv; /* XXX */
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+	const char *topic, *payload;
+	size_t topic_len, payload_len;
+
+	topic = lua_tolstring(L, 1, &topic_len);
+	payload = lua_tolstring(L, 2, &payload_len);
+
+	if (mqtt_publish(mc, topic, topic_len, payload, payload_len,
+	    MQTT_QOS0, MQTT_NORETAIN) == -1)
+		errx(1, "mqtt publish %s", topic);
+
+        return (0);
+}
+
+static int
 wslv_luaL_tele(lua_State *L)
 {
 	struct wslv_softc *sc = &_wslv; /* XXX */
@@ -1567,6 +1585,7 @@ wslv_luaL_in_cmnd(lua_State *L)
 }
 
 static const luaL_Reg wslv_luaL[] = {
+	{ "publish",		wslv_luaL_publish },
 	{ "tele",		wslv_luaL_tele },
 	{ "in_cmnd",		wslv_luaL_in_cmnd },
 
