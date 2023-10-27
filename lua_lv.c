@@ -244,6 +244,12 @@ lua_lv_checkbox_create(lua_State *L)
 }
 
 static int
+lua_lv_img_create(lua_State *L)
+{
+	return (lua_lv_obj_create_udata(L, lv_img_create));
+}
+
+static int
 lua_lv_label_create(lua_State *L)
 {
 	return (lua_lv_obj_create_udata(L, lv_label_create));
@@ -2177,6 +2183,199 @@ static const luaL_Reg lua_lv_checkbox_methods[] = {
 };
 
 /*
+ * lv_img
+ */
+
+static int
+lua_lv_img_set_src(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_img_class);
+	const char *src = luaL_checkstring(L, 2);
+
+	lv_img_set_src(obj, src); /* this doesnt fail? */
+
+	return (0);
+}
+
+static int
+lua_lv_img_offset_x(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	lv_coord_t x;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		x = luaL_checkinteger(L, 2);
+		lv_img_set_offset_x(obj, x);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	x = lv_img_get_offset_x(obj);
+	lua_pushinteger(L, x);
+
+	return (1);
+}
+
+static int
+lua_lv_img_offset_y(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	lv_coord_t y;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		y = luaL_checkinteger(L, 2);
+		lv_img_set_offset_y(obj, y);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	y = lv_img_get_offset_y(obj);
+	lua_pushinteger(L, y);
+
+	return (1);
+}
+
+static int
+lua_lv_img_angle(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	int16_t angle;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		angle = luaL_checkinteger(L, 2);
+		lv_img_set_angle(obj, angle);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	angle = lv_img_get_angle(obj);
+	lua_pushinteger(L, angle);
+
+	return (1);
+}
+
+static int
+lua_lv_img_pivot(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	lv_coord_t x, y;
+	lv_point_t pivot;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		x = luaL_checkinteger(L, 2);
+		y = luaL_checkinteger(L, 3);
+		lv_img_set_pivot(obj, x, y);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lv_img_get_pivot(obj, &pivot);
+	lua_pushinteger(L, pivot.x);
+	lua_pushinteger(L, pivot.y);
+
+	return (2);
+}
+
+static int
+lua_lv_img_zoom(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	uint16_t zoom;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		zoom = luaL_checkinteger(L, 2);
+		lv_img_set_zoom(obj, zoom);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	zoom = lv_img_get_zoom(obj);
+	lua_pushinteger(L, zoom);
+
+	return (1);
+}
+
+static int
+lua_lv_img_antialias(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	int aa;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		aa = lua_toboolean(L, 2);
+		lv_img_set_antialias(obj, aa);
+		break;
+	case 1:
+		aa = lv_img_get_antialias(obj);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushboolean(L, aa);
+
+	return (1);
+}
+
+static int
+lua_lv_img_size_mode(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
+	lv_img_size_mode_t mode;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		mode = luaL_checkinteger(L, 2);
+		lv_img_set_size_mode(obj, mode);
+		break;
+	case 1:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	mode = lv_img_get_size_mode(obj);
+	lua_pushinteger(L, mode);
+
+	return (1);
+}
+
+static const luaL_Reg lua_lv_img_methods[] = {
+	{ "set_src",		lua_lv_img_set_src },
+
+	{ "offset_x",		lua_lv_img_offset_x },
+	{ "offset_y",		lua_lv_img_offset_y },
+	{ "angle",		lua_lv_img_angle },
+	{ "pivot",		lua_lv_img_pivot },
+	{ "zoom",		lua_lv_img_zoom },
+	{ "antialias",		lua_lv_img_antialias },
+	{ "size_mode",		lua_lv_img_size_mode },
+
+	{ NULL,			NULL }
+};
+
+/*
  * lv_label
  */
 
@@ -2480,6 +2679,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_bar_class,	lua_lv_bar_methods },
 	{ &lv_btn_class,	lua_lv_btn_methods },
 	{ &lv_checkbox_class,	lua_lv_checkbox_methods },
+	{ &lv_img_class,	lua_lv_img_methods },
 	{ &lv_label_class,	lua_lv_label_methods },
 	{ &lv_slider_class,	lua_lv_slider_methods },
 	{ &lv_switch_class,	lua_lv_switch_methods },
@@ -2785,6 +2985,8 @@ static const luaL_Reg lua_lv[] = {
 	{ "btn",		lua_lv_btn_create },
 	{ "button",		lua_lv_btn_create },
 	{ "checkbox",		lua_lv_checkbox_create },
+	{ "img",		lua_lv_img_create },
+	{ "image",		lua_lv_img_create },
 	{ "label",		lua_lv_label_create },
 	{ "slider",		lua_lv_slider_create },
 	{ "switch",		lua_lv_switch_create },
