@@ -135,6 +135,17 @@ struct wslv_pointer {
 };
 TAILQ_HEAD(wslv_pointer_list, wslv_pointer);
 
+struct wslv_lua_mqtt_sub {
+	char				*filter;
+	size_t				 len;
+	int				 handler; /* lua ref */
+
+	unsigned int			 refs;
+
+	TAILQ_ENTRY(wslv_lua_mqtt_sub)	 entry;
+};
+TAILQ_HEAD(wslv_lua_mqtt_subs, wslv_lua_mqtt_sub);
+
 struct wslv_softc {
 	const char			*sc_name;
 
@@ -188,6 +199,8 @@ struct wslv_softc {
 	const char			*sc_L_script;
 	int				 sc_L_reload;
 	int				 sc_L_in_cmnd;
+
+	struct wslv_lua_mqtt_subs	 sc_L_subs;
 };
 
 struct wslv_softc _wslv = {
@@ -200,6 +213,8 @@ struct wslv_softc _wslv = {
 	.sc_mqtt_device		= NULL,
 	.sc_mqtt_user		= NULL,
 	.sc_mqtt_pass		= NULL,
+
+	.sc_L_subs		= TAILQ_HEAD_INITIALIZER(_wslv.sc_L_subs),
 };
 struct wslv_softc *sc = &_wslv;
 
@@ -231,6 +246,12 @@ static void		wslv_mqtt_tele_period(int, short, void *);
 static void		wslv_lua_init(struct wslv_softc *);
 static void		wslv_lua_reload(struct wslv_softc *);
 static void		wslv_lua_reload_cb(lv_event_t *);
+
+static void		wslv_lua_mqtt_suback(struct wslv_softc *, void *,
+			    const uint8_t *, size_t);
+static void		wslv_lua_mqtt_unsuback(struct wslv_softc *, void *);
+static void		wslv_lua_mqtt_message(struct wslv_softc *,
+			    char *, size_t, char *, size_t, int);
 
 static int		wslv_luaopen(struct wslv_softc *, lua_State *);
 static void		wslv_lua_cmnd(struct wslv_softc *,
@@ -891,6 +912,7 @@ static ssize_t	wslv_mqtt_output(struct mqtt_conn *, const void *, size_t);
 static void	wslv_mqtt_on_connect(struct mqtt_conn *);
 static void	wslv_mqtt_on_suback(struct mqtt_conn *, void *,
 		    const uint8_t *, size_t);
+static void	wslv_mqtt_on_unsuback(struct mqtt_conn *, void *);
 static void	wslv_mqtt_on_message(struct mqtt_conn *,
 		    char *, size_t, char *, size_t, enum mqtt_qos);
 static void	wslv_mqtt_dead(struct mqtt_conn *);
@@ -905,6 +927,7 @@ static const struct mqtt_settings wslv_mqtt_settings = {
 
 	.mqtt_on_connect = wslv_mqtt_on_connect,
 	.mqtt_on_suback = wslv_mqtt_on_suback,
+	.mqtt_on_unsuback = wslv_mqtt_on_unsuback,
 	.mqtt_on_message = wslv_mqtt_on_message,
 	.mqtt_dead = wslv_mqtt_dead,
 };
@@ -1174,12 +1197,28 @@ wslv_mqtt_on_suback(struct mqtt_conn *mc, void *cookie,
 	struct wslv_softc *sc = mqtt_cookie(mc);
 	static const char online[] = "Online";
 
+	if (cookie != NULL) {
+		wslv_lua_mqtt_suback(sc, cookie, rcodes, nrcodes);
+		return;
+	}
+
 	if (mqtt_publish(mc,
 	    sc->sc_mqtt_will_topic, sc->sc_mqtt_will_topic_len,
 	    online, sizeof(online) - 1, MQTT_QOS0, MQTT_RETAIN) == -1)
 		errx(1, "mqtt publish %s %s", sc->sc_mqtt_will_topic, online);
 
 	wslv_mqtt_tele_period(0, 0, sc);
+}
+
+static void
+wslv_mqtt_on_unsuback(struct mqtt_conn *mc, void *cookie)
+{
+	struct wslv_softc *sc = mqtt_cookie(mc);
+
+	if (cookie != NULL) {
+		wslv_lua_mqtt_unsuback(sc, cookie);
+		return;
+	}
 }
 
 struct wslv_mqtt_cmnd {
@@ -1221,24 +1260,24 @@ wslv_mqtt_on_message(struct mqtt_conn *mc,
 	const struct wslv_mqtt_cmnd *cmnd;
 
 	if (payload == NULL || *payload == '\0')
-		goto drop;
+		goto free;
 
 	if (topic_len <= prefix_cmnd_len) /* <= includes '/' */
-		goto drop;
+		goto decline;
 	if (strncmp(topic, prefix_cmnd, prefix_cmnd_len) != 0)
-		goto drop;
+		goto decline;
 	off = prefix_cmnd_len;
 	if (topic[off++] != '/')
-		goto drop;
+		goto decline;
 
 	device_len = strlen(sc->sc_mqtt_device);
 	if (topic_len <= (off + device_len)) /* <= includes '/' */
-		goto drop;
+		goto decline;
 	if (strncmp(topic + off, sc->sc_mqtt_device, device_len) != 0)
-		goto drop;
+		goto decline;
 	off += device_len;
 	if (topic[off++] != '/')
-		goto drop;
+		goto decline;
 
 	name = topic + off;
 	cmnd_len = name_len = topic_len - off;
@@ -1251,10 +1290,15 @@ wslv_mqtt_on_message(struct mqtt_conn *mc,
 		(*cmnd->handler)(sc, name, payload, payload_len);
 	else
 		wslv_lua_cmnd(sc, name, name_len, payload, payload_len);
+	goto free;
 
-drop:
+free:
         free(topic);
         free(payload);
+	return;
+
+decline:
+	wslv_lua_mqtt_message(sc, topic, topic_len, payload, payload_len, qos);
 }
 
 static void
@@ -1359,7 +1403,7 @@ publish:
 static void
 wslv_mqtt_dead(struct mqtt_conn *mc)
 {
-	err(1, "%s", __func__);
+	errx(1, "%s", __func__);
 }
 
 uint64_t
@@ -1459,15 +1503,40 @@ close:
 	lua_close(L);
 }
 
+/*
+ * wslv lua bits
+ */
+
+static void
+wslv_lua_mqtt_sub_rele(struct wslv_lua_mqtt_sub *lsub)
+{
+	if (--lsub->refs == 0) {
+		free(lsub->filter);
+		free(lsub);
+	}
+}
+
 static void
 wslv_lua_reload(struct wslv_softc *sc)
 {
 	lua_State *L = sc->sc_L;
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+	struct wslv_lua_mqtt_sub *lsub;
 
 	if (L != NULL) {
 		sc->sc_L = NULL;
 		lua_close(L);
 	}
+
+	TAILQ_FOREACH(lsub, &sc->sc_L_subs, entry) {
+		lsub->handler = LUA_NOREF;
+
+		/* give this ref to unsub */
+		if (mqtt_unsubscribe(mc, lsub,
+		    lsub->filter, lsub->len) == -1)
+			errx(1, "lsub %s unsub", lsub->filter);
+	}
+	TAILQ_INIT(&sc->sc_L_subs);
 
 	wslv_lua_init(sc);
 }
@@ -1479,10 +1548,6 @@ wslv_lua_reload_cb(lv_event_t *e)
 
 	wslv_lua_reload(sc);
 }
-
-/*
- * wslv lua bits
- */
 
 static void
 wslv_lua_clocktick(int nil, short events, void *arg)
@@ -1561,6 +1626,131 @@ wslv_luaL_publish(lua_State *L)
         return (0);
 }
 
+static void
+wslv_lua_mqtt_suback(struct wslv_softc *sc, void *cookie,
+    const uint8_t *rcodes, size_t nrcodes)
+{
+	struct wslv_lua_mqtt_sub *lsub = cookie;
+	uint8_t rcode;
+
+	if (nrcodes < 1) {
+		warnx("%s: rcodes < 1", __func__);
+		return;
+	}
+
+	rcode = rcodes[0];
+	switch (rcode) {
+	case 0x00:
+		break;
+	case 0x01:
+	case 0x02:
+		warnx("%s suback, unexpected success rcode 0x%02x",
+		    lsub->filter, rcode);
+		break;
+	case 0x80:
+		warnx("%s suback failed", lsub->filter);
+		/* XXX unlink lsub from sc */
+		return;
+	default:
+		warnx("%s suback, unexpected rcode 0x%02x",
+		    lsub->filter, rcode);
+		break;
+	}
+
+	wslv_lua_mqtt_sub_rele(lsub);
+}
+
+static void
+wslv_lua_mqtt_unsuback(struct wslv_softc *sc, void *cookie)
+{
+	struct wslv_lua_mqtt_sub *lsub = cookie;
+
+	wslv_lua_mqtt_sub_rele(lsub);
+}
+
+static void
+wslv_lua_mqtt_message(struct wslv_softc *sc,
+    char *topic, size_t topiclen, char *payload, size_t payloadlen, int qos)
+{
+	lua_State *L = sc->sc_L;
+	int top;
+	int rv;
+
+	struct wslv_lua_mqtt_sub *lsub;
+
+	if (L == NULL)
+		goto free;
+
+	top = lua_gettop(L);
+
+	lua_getglobal(L, "mqtt_message");
+	if (!lua_isfunction(L, -1))
+		goto pop;
+
+	lua_pushlstring(L, topic, topiclen);
+	lua_pushlstring(L, payload, payloadlen);
+	lua_pushinteger(L, qos);
+
+	sc->sc_L_in_cmnd = 1;
+	rv = lua_pcall(L, 3, 0, 0);
+	sc->sc_L_in_cmnd = 0;
+
+	if (rv != 0)
+		warnx("lua pcall mqtt_message %s", lua_tostring(L, -1));
+
+pop:
+	lua_settop(L, top);
+free:
+	free(topic);
+	free(payload);
+}
+
+static int
+wslv_luaL_subscribe(lua_State *L)
+{
+	struct wslv_softc *sc = &_wslv; /* XXX */
+	struct mqtt_conn *mc = sc->sc_mqtt_conn;
+	struct wslv_lua_mqtt_sub *lsub;
+	const char *filter;
+	size_t len;
+
+	filter = luaL_checklstring(L, 1, &len);
+
+	lsub = malloc(sizeof(*lsub));
+	if (lsub == NULL) {
+		return luaL_error(L, "wslv_lua_mqtt_sub alloc: %s",
+		    strerror(errno));
+	}
+	lsub->filter = malloc(len);
+	if (lsub->filter == NULL) {
+		int serrno = errno;
+		free(lsub);
+		return luaL_error(L, "wslv_lua_mqtt_sub filter alloc: %s",
+		    strerror(serrno));
+	}
+
+	memcpy(lsub->filter, filter, len);
+	lsub->len = len;
+
+	lsub->handler = LUA_NOREF;
+	if (lua_isfunction(L, 2)) {
+		lua_pushvalue(L, 2);
+		lsub->len = luaL_ref(L, LUA_REGISTRYINDEX);
+	}
+
+	lsub->refs = 2; /* one for amqtt, one for sc */
+
+	if (mqtt_subscribe(mc, lsub, filter, len, MQTT_QOS0) == -1) {
+		free(lsub->filter);
+		free(lsub);
+		return luaL_error(L, "mqtt subscribe %s failed", filter);
+	}
+
+	TAILQ_INSERT_TAIL(&sc->sc_L_subs, lsub, entry);
+
+	return (0);
+}
+
 static int
 wslv_luaL_tele(lua_State *L)
 {
@@ -1586,6 +1776,7 @@ wslv_luaL_in_cmnd(lua_State *L)
 
 static const luaL_Reg wslv_luaL[] = {
 	{ "publish",		wslv_luaL_publish },
+	{ "subscribe",		wslv_luaL_subscribe },
 	{ "tele",		wslv_luaL_tele },
 	{ "in_cmnd",		wslv_luaL_in_cmnd },
 
