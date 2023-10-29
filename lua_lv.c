@@ -2919,7 +2919,7 @@ static const struct lua_lv_constants lua_lv_constants_table[] = {
 	LUA_LV_CONSTANTS("DIR",		lua_lv_dir_t),
 	LUA_LV_CONSTANTS("EVENT",	lua_lv_event_t),
 	LUA_LV_CONSTANTS("FLEX_FLOW",	lua_lv_flex_flow_t),
-	LUA_LV_CONSTANTS("FLEX_ALIGN",	lua_lv_flex_flow_t),
+	LUA_LV_CONSTANTS("FLEX_ALIGN",	lua_lv_flex_align_t),
 	LUA_LV_CONSTANTS("GRID_ALIGN",	lua_lv_grid_align_t),
 
 	LUA_LV_CONSTANTS("BAR_MODE",	lua_lv_bar_mode_t),
