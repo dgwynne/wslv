@@ -2693,6 +2693,116 @@ static const luaL_Reg lua_lv_tabview_methods[] = {
 };
 
 /*
+ * lv_tileview
+ */
+
+static int
+lua_lv_tileview_create(lua_State *L)
+{
+	return (lua_lv_obj_create_udata(L, lv_tileview_create));
+}
+
+static int
+lua_lv_tileview_add_tile(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tileview_class);
+	int col_id = luaL_checkinteger(L, 2);
+	int row_id = luaL_checkinteger(L, 3);
+	lv_dir_t dir = luaL_checkinteger(L, 4);
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	luaL_argcheck(L, col_id > 0, 2, "col_id must be >= 1");
+	luaL_argcheck(L, row_id > 0, 3, "row_id must be >= 1");
+
+	obj = lv_tileview_add_tile(tv, col_id - 1, row_id - 1, dir);
+	if (obj == NULL)
+		return luaL_error(L, "lv_tileview_add_tile failed");
+
+	lobj = lua_lv_obj_register(L, obj);
+
+	LVDPRINTF("tileview:%p, obj:%p, lobj:%p", tv, obj, lobj);
+
+	return (1);
+}
+
+static int
+lua_lv_tileview_get_tile_act(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tileview_class);
+	lv_obj_t *obj;
+	struct lua_lv_obj *lobj;
+
+	obj = lv_tileview_get_tile_act(tv);
+	if (obj == NULL)
+		return luaL_error(L, "lv_tileview_add_tile failed");
+
+	lobj = lua_lv_obj_getp(L, obj);
+
+	LVDPRINTF("tileview:%p, obj:%p, lobj:%p", tv, obj, lobj);
+
+	return (1);
+}
+
+static int
+lua_lv_tileview_set_tile(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tileview_class);
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 2, &lv_tileview_tile_class);
+	lv_anim_enable_t anim = LV_ANIM_OFF;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		anim = lua_toboolean(L, 3) ? LV_ANIM_ON : LV_ANIM_OFF;
+		/* FALLTHROUGH */
+	case 2:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lv_obj_set_tile(tv, obj, anim);
+
+	return (0);
+}
+
+static int
+lua_lv_tileview_set_tile_id(lua_State *L)
+{
+	lv_obj_t *tv = lua_lv_check_obj_class(L, 1, &lv_tileview_class);
+	int col_id = luaL_checkinteger(L, 2);
+	int row_id = luaL_checkinteger(L, 3);
+	lv_anim_enable_t anim = LV_ANIM_OFF;
+
+	luaL_argcheck(L, col_id > 0, 2, "col_id must be >= 1");
+	luaL_argcheck(L, row_id > 0, 3, "row_id must be >= 1");
+
+	switch (lua_gettop(L)) {
+	case 4:
+		anim = lua_toboolean(L, 4) ? LV_ANIM_ON : LV_ANIM_OFF;
+		/* FALLTHROUGH */
+	case 3:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lv_obj_set_tile_id(tv, col_id - 1, row_id - 1, anim);
+
+	return (0);
+}
+
+static const luaL_Reg lua_lv_tileview_methods[] = {
+	{ "add_tile",		lua_lv_tileview_add_tile },
+	{ "set_tile",		lua_lv_tileview_set_tile },
+	{ "set_tile_id",	lua_lv_tileview_set_tile_id },
+	{ "act",		lua_lv_tileview_get_tile_act },
+	{ "tile_act",		lua_lv_tileview_get_tile_act },
+
+	{ NULL,			NULL }
+};
+
+/*
  * widgets
  */
 
@@ -2711,6 +2821,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_slider_class,	lua_lv_slider_methods },
 	{ &lv_switch_class,	lua_lv_switch_methods },
 	{ &lv_tabview_class,	lua_lv_tabview_methods },
+	{ &lv_tileview_class,	lua_lv_tileview_methods },
 };
 
 /*
@@ -3019,6 +3130,7 @@ static const luaL_Reg lua_lv[] = {
 	{ "switch",		lua_lv_switch_create },
 
 	{ "tabview",		lua_lv_tabview_create },
+	{ "tileview",		lua_lv_tileview_create },
 
 	{ "style",		lua_lv_style_create },
 	{ "ft",			lua_lv_ft_create },
