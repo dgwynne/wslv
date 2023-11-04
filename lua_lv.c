@@ -63,6 +63,7 @@ static const char lua_lv_style_type[] = "lv_style_t";
 static const char lua_lv_ft_type[] = "lv_ft_info_t";
 
 static const char lua_lv_state[] = "_lua_lv_state";
+static const char lua_lv_btnmatrix_map[] = "_lua_lv_btnmatrix_map";
 
 struct lua_lv_obj {
 	lv_obj_t		*lv_obj;
@@ -2177,6 +2178,101 @@ static const luaL_Reg lua_lv_btn_methods[] = {
 };
 
 /*
+ * lv_btnmatrix
+ */
+
+static int
+lua_lv_btnmatrix_create(lua_State *L)
+{
+	return (lua_lv_obj_create_udata(L, lv_btnmatrix_create));
+}
+
+static const char lua_lv_btnmatrix_map_nl[] = "\n";
+static const char lua_lv_btnmatrix_map_end[] = ""; /* WHY */
+
+static int
+lua_lv_btnmatrix_map__gc(lua_State *L)
+{
+	char **map = luaL_checkudata(L, 1, lua_lv_btnmatrix_map);
+	char *e;
+	size_t i = 0;
+
+	while ((e = map[i++]) != NULL) {
+		if (e == lua_lv_btnmatrix_map_end)
+			break;
+		if (e == lua_lv_btnmatrix_map_nl)
+			continue;
+
+		free(e);
+	}
+
+	return (0);
+}
+
+static int
+lua_lv_btnmatrix_set_map(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_btnmatrix_class);
+	char **map;
+	int len;
+	int i;
+
+	luaL_argcheck(L, lua_istable(L, 2), 2, "map table expected");
+	len = lua_rawlen(L, 2);
+	luaL_argcheck(L, len >= 1, 2, "map table length must be >= 1");
+
+	map = lua_newuserdata(L, sizeof(*map) * (len + 1));
+	for (i = 0; i <= len; i++)
+		map[i] = NULL;
+	luaL_setmetatable(L, lua_lv_btnmatrix_map);
+
+	for (i = 0; i < len; i++) {
+		int k = i + 1;
+		const char *s;
+		size_t slen;
+
+		lua_rawgeti(L, 2, k);
+		s = lua_tolstring(L, -1, &slen);
+		luaL_argcheck(L, slen != 0, 2,
+		    "map table contains empty string");
+
+		if (slen == 1 && s[0] == '\n')
+			map[i] = (char *)lua_lv_btnmatrix_map_nl;
+		else {
+			char *e = malloc(slen + 1);
+			if (e == NULL) {
+				return luaL_error(L,
+				    "unable to allocate map entry");
+			}
+
+			memcpy(e, s, slen);
+			e[slen] = '\0';
+			map[i] = e;
+		}
+
+		lua_pop(L, 1);
+	}
+	map[i] = (char *)lua_lv_btnmatrix_map_end;
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_btnmatrix_map);
+	lua_pushvalue(L, 1);
+	lua_pushvalue(L, -3);
+	lua_settable(L, -3);
+
+	lv_btnmatrix_set_map(obj, (const char **)map);
+
+	lua_pop(L, 2);
+
+	return (0);
+}
+
+static const luaL_Reg lua_lv_btnmatrix_methods[] = {
+	{ "set_map",		lua_lv_btnmatrix_set_map },
+
+	{ NULL,			NULL }
+};
+
+/*
  * lv_checkbox
  */
 
@@ -2815,6 +2911,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_obj_class,	lua_lv_obj_methods },
 	{ &lv_bar_class,	lua_lv_bar_methods },
 	{ &lv_btn_class,	lua_lv_btn_methods },
+	{ &lv_btnmatrix_class,	lua_lv_btnmatrix_methods },
 	{ &lv_checkbox_class,	lua_lv_checkbox_methods },
 	{ &lv_img_class,	lua_lv_img_methods },
 	{ &lv_label_class,	lua_lv_label_methods },
@@ -3122,6 +3219,7 @@ static const luaL_Reg lua_lv[] = {
 	{ "bar",		lua_lv_bar_create },
 	{ "btn",		lua_lv_btn_create },
 	{ "button",		lua_lv_btn_create },
+	{ "btnmatrix",		lua_lv_btnmatrix_create },
 	{ "checkbox",		lua_lv_checkbox_create },
 	{ "img",		lua_lv_img_create },
 	{ "image",		lua_lv_img_create },
@@ -3265,6 +3363,28 @@ luaopen_lv(lua_State *L)
 		lua_settable(L, -3);
 	}
 	lua_pop(L, 1);
+
+	/* lv_btnmatrix_map stuff */
+	if (luaL_newmetatable(L, lua_lv_btnmatrix_map)) {
+		lua_pushliteral(L, "__gc");
+		lua_pushcfunction(L, lua_lv_btnmatrix_map__gc);
+		lua_settable(L, -3);
+
+		lua_pushliteral(L, "__metatable");
+		lua_pushliteral(L, "nope");
+		lua_settable(L, -3);
+	}
+	lua_pop(L, 1);
+
+	lua_newtable(L);
+	lua_newtable(L); /* metatable */
+	lua_pushliteral(L, "__mode");
+	lua_pushliteral(L, "k");
+	lua_settable(L, -3);
+	lua_setmetatable(L, -2);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_btnmatrix_map);
+
+	/* end of lv_btnmastrix_map stuff */
 
 	lstate = lua_newuserdata(L, sizeof(*lstate));
 	lstate->lv_obj = lv_scr_act();
