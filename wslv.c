@@ -374,17 +374,20 @@ main(int argc, char *argv[])
 	lv_freetype_init(0, 0, 0);
 
 	if (sc->sc_ws_drm) {
-		lv_coord_t w, h;
+		lv_coord_t p, w, h;
 		size_t len;
 
 		if (drm_init() == -1)
 			exit(1);
 
-		drm_get_sizes(&w, &h, NULL);
+		drm_get_sizes(&p, &w, &h, NULL);
+		if (p % sizeof(lv_color_int_t))
+			errx(1, "drm pitch is not a multiple of pixel sizes");
+
 		sc->sc_ws_vinfo.width = w;
 		sc->sc_ws_vinfo.height = h;
 		sc->sc_ws_vinfo.depth = LV_COLOR_DEPTH;
-		sc->sc_ws_linebytes = w * (LV_COLOR_SIZE/8);
+		sc->sc_ws_linebytes = p;
 
 		sc->sc_ws_fb = drm_get_fb(0);
 		if (sc->sc_ws_fb == NULL)
@@ -398,6 +401,7 @@ main(int argc, char *argv[])
 		sc->sc_ws_svideo = wslv_drm_svideo;
 	} else
 		sc->sc_ws_svideo = wslv_wsfb_svideo;
+
 	event_init();
 
 	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
@@ -405,7 +409,10 @@ main(int argc, char *argv[])
 
 	lv_disp_drv_init(&sc->sc_lv_disp_drv);
 	sc->sc_lv_disp_drv.draw_buf = &sc->sc_lv_disp_buf;
-	sc->sc_lv_disp_drv.hor_res = sc->sc_ws_vinfo.width;
+	sc->sc_lv_disp_drv.hor_res =
+	    sc->sc_ws_linebytes / sizeof(lv_color_int_t);
+	if (sc->sc_lv_disp_drv.hor_res != sc->sc_ws_vinfo.width)
+		sc->sc_lv_disp_drv.physical_hor_res = sc->sc_ws_vinfo.width;
 	sc->sc_lv_disp_drv.ver_res = sc->sc_ws_vinfo.height;
 	if (sc->sc_ws_drm) {
 		sc->sc_lv_disp_drv.flush_cb = drm_flush;

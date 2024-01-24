@@ -807,6 +807,11 @@ drm_setup_buffers(void)
 	if (ret)
 		return (ret);
 
+	if (drm_dev.drm_bufs[0].pitch != drm_dev.drm_bufs[1].pitch) {
+		err("buffer pitch mismatch");
+		return (-1);
+	}
+
 	return (0);
 }
 
@@ -950,8 +955,11 @@ drm_event_set(lv_disp_drv_t *disp_drv)
 #endif
 
 void
-drm_get_sizes(lv_coord_t *width, lv_coord_t *height, uint32_t *dpi)
+drm_get_sizes(lv_coord_t *pitch, lv_coord_t *width, lv_coord_t *height,
+    uint32_t *dpi)
 {
+	*pitch = drm_dev.drm_bufs[0].pitch;
+
 	if (width)
 		*width = drm_dev.width;
 
