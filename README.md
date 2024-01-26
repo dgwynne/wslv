@@ -137,4 +137,7 @@ given to the Lua script to handle if it provides a
 `cmnd/DEVNAME/` prefix is removed from the topic before the Lua
 `cmnd()` handler is called.
 
-Lua scripts can also publish or subscribe to any MQTT topic they want.
+Lua scripts can also publish or subscribe to any MQTT topic they
+want with `wslv.publish()` and `wslv.subscribe()` respectively.
+MQTT messages can be received by an `mqtt_message()` function in
+the Lua script.
