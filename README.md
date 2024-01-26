@@ -123,8 +123,8 @@ Testament" messages. Once connected it publishes `Online`. If it's
 disconnected the MQTT server should publish `Offline`.
 
 The state of the screen is published as part of `tele/DEVNAME/STATUS`.
-The screen can be manually controlled by sending `OFF`, `ON`, or
-`TOGGLE` to `cmnd/DEVNAME/blank`.
+The screen can be manually controlled by sending `ON` (or `1`),
+`OFF` (or `0`), or `TOGGLE` (or `2`) to `cmnd/DEVNAME/screen`.
 
 Lua scripts can use `wslv.tele(topic, payload)` to publish messages.
 The topic argument to the `wslv.tele()` method is added to the end
@@ -136,3 +136,5 @@ given to the Lua script to handle if it provides a
 `cmnd(topic, payload)` function for wslv to call. The
 `cmnd/DEVNAME/` prefix is removed from the topic before the Lua
 `cmnd()` handler is called.
+
+Lua scripts can also publish or subscribe to any MQTT topic they want.
