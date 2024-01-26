@@ -30,6 +30,7 @@
 #include <fcntl.h>
 #include <time.h>
 #include <netdb.h>
+#include <assert.h>
 #include <errno.h>
 #include <err.h>
 
@@ -100,6 +101,10 @@ hexdump(const void *d, size_t datalen)
 #define WSLV_IDLE_TIME_MIN		 4
 #define WSLV_IDLE_TIME_MAX		 3600
 #define WSLV_IDLE_TIME_DEFAULT		 120
+
+#define WSLV_IDLE_STATE_AWAKE		 0
+#define WSLV_IDLE_STATE_DROWSY		 1
+#define WSLV_IDLE_STATE_ASLEEP		 2
 
 struct wslv_softc;
 
@@ -205,7 +210,7 @@ struct wslv_softc {
 
 struct wslv_softc _wslv = {
 	.sc_idle_time		= { WSLV_IDLE_TIME_DEFAULT, 0 },
-	.sc_idle		= 0,
+	.sc_idle		= WSLV_IDLE_STATE_AWAKE,
 
 	.sc_mqtt_family		= AF_UNSPEC,
 	.sc_mqtt_host		= NULL,
@@ -226,7 +231,7 @@ static void		wslv_pointer_set(struct wslv_softc *);
 
 static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
-static void		wslv_idle(int, short, void *);
+static void		wslv_idle_ev(int, short, void *);
 static void		wslv_wake(struct wslv_softc *);
 
 static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
@@ -448,7 +453,10 @@ main(int argc, char *argv[])
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
 	wslv_tick(0, 0, sc);
 
-	evtimer_set(&sc->sc_idle_ev, wslv_idle, sc);
+	if (sc->sc_idle_time.tv_sec % 2)
+		sc->sc_idle_time.tv_usec = 1000000 / 2;
+	sc->sc_idle_time.tv_sec /= 2;
+	evtimer_set(&sc->sc_idle_ev, wslv_idle_ev, sc);
 	evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
 
 //	lv_theme_default_init(sc->sc_lv_disp,
@@ -538,6 +546,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 	struct wslv_pointer_event *pe;
 	lv_disp_t *disp = wp->wp_lv_indev_drv.disp;
 	int v = wsevt->value;
+	unsigned int idle;
 	int d;
 
 	if (0) {
@@ -594,10 +603,16 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		wp->wp_state.p_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
-		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
 		wp->wp_state_synced = wp->wp_state;
 
-		if (sc->sc_idle) {
+		idle = sc->sc_idle;
+		sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
+		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+
+		if (idle != WSLV_IDLE_STATE_AWAKE)
+			wslv_mqtt_tele(sc);
+
+		if (idle == WSLV_IDLE_STATE_ASLEEP) {
 			/* wake the display up as soon as anything happens */
 			wslv_svideo(sc, 1);
 
@@ -754,17 +769,31 @@ wslv_tick(int nil, short events, void *arg)
 }
 
 static void
-wslv_idle(int nil, short events, void *arg)
+wslv_sleep(struct wslv_softc *sc)
 {
-	struct wslv_softc *sc = arg;
 	struct wslv_pointer *wp;
 
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
 		wp->wp_lv_indev_drv.read_cb = wslv_pointer_idle;
 
-	sc->sc_idle = 1;
-	warnx("idle");
 	wslv_svideo(sc, 0);
+}
+
+static void
+wslv_idle_ev(int nil, short events, void *arg)
+{
+	struct wslv_softc *sc = arg;
+
+	assert(sc->sc_idle <= WSLV_IDLE_STATE_ASLEEP);
+
+	switch (sc->sc_idle++) {
+	case WSLV_IDLE_STATE_AWAKE: /* getting dozy */
+		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+		break;
+	case WSLV_IDLE_STATE_DROWSY: /* going to sleep */
+		wslv_sleep(sc);
+		break;
+	}
 
 	wslv_mqtt_tele(sc);
 }
@@ -774,14 +803,11 @@ wslv_wake(struct wslv_softc *sc)
 {
 	struct wslv_pointer *wp;
 
-	warnx("wake");
 	/* the display has already been woken up */
 
-	sc->sc_idle = 0;
+	sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
 		wp->wp_lv_indev_drv.read_cb = wslv_pointer_read;
-
-	wslv_mqtt_tele(sc);
 }
 
 static int
@@ -1234,11 +1260,11 @@ struct wslv_mqtt_cmnd {
 	    const char *, size_t);
 };
 
-static void	wslv_mqtt_blank(struct wslv_softc *, const char *,
+static void	wslv_mqtt_screen(struct wslv_softc *, const char *,
 		    const char *, size_t);
 
 static const struct wslv_mqtt_cmnd wslv_mqtt_cmnds[] = {
-	{ "blank",		wslv_mqtt_blank },
+	{ "screen",		wslv_mqtt_screen },
 };
 
 static const struct wslv_mqtt_cmnd *
@@ -1308,6 +1334,12 @@ decline:
 	wslv_lua_mqtt_message(sc, topic, topic_len, payload, payload_len, qos);
 }
 
+static const char *wslv_idle_state_names[] = {
+	[WSLV_IDLE_STATE_AWAKE] = "awake",
+	[WSLV_IDLE_STATE_DROWSY] = "drowsy",
+	[WSLV_IDLE_STATE_ASLEEP] = "asleep",
+};
+
 static void
 wslv_mqtt_tele(struct wslv_softc *sc)
 {
@@ -1325,8 +1357,11 @@ wslv_mqtt_tele(struct wslv_softc *sc)
 	if (topic_len >= sizeof(topic))
 		errx(1, "mqtt tele topic len");
 
-	rv = snprintf(payload, sizeof(payload), "{\"blank\":\"%s\"}",
-	    sc->sc_idle ? "ON" : "OFF");
+	rv = snprintf(payload, sizeof(payload),
+	    "{\"idle\":\"%s\",\"screen\":\"%s\",\"state\":\"%s\"}",
+	    sc->sc_idle > WSLV_IDLE_STATE_AWAKE ? "ON" : "OFF",
+	    sc->sc_idle < WSLV_IDLE_STATE_ASLEEP ? "ON" : "OFF",
+	    wslv_idle_state_names[sc->sc_idle]);
 	if (rv == -1)
 		errx(1, "mqtt tele payload");
 	payload_len = rv;
@@ -1374,36 +1409,41 @@ wslv_mqtt_tele_period(int nope, short events, void *arg)
 }
 
 static void
-wslv_mqtt_blank(struct wslv_softc *sc, const char *name,
+wslv_mqtt_screen(struct wslv_softc *sc, const char *name,
     const char *payload, size_t payload_len)
 {
-	int blank;
+	int oscreen = sc->sc_idle < WSLV_IDLE_STATE_ASLEEP;
+	int nscreen;
 
 	if (strcasecmp(payload, "on") == 0 ||
 	    strcasecmp(payload, "1") == 0)
-		blank = 1;
+		nscreen = 1;
 	else if (strcasecmp(payload, "off") == 0 ||
-	    strcasecmp(payload, "0") == 0) {
-		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
-		blank = 0;
-	} else if (strcasecmp(payload, "toggle") == 0 ||
+	    strcasecmp(payload, "0") == 0)
+		nscreen = 0;
+	else if (strcasecmp(payload, "toggle") == 0 ||
 	    strcasecmp(payload, "2") == 0)
-		blank = !sc->sc_idle;
+		nscreen = !oscreen;
 	else
-		goto publish;
-
-	if (blank != sc->sc_idle) {
-		if (blank) {
-			evtimer_del(&sc->sc_idle_ev);
-			wslv_idle(0, 0, sc);
-		} else {
-			wslv_svideo(sc, 1);
-			wslv_wake(sc);
-		}
 		return;
+
+	if (nscreen) {
+		sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
+		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+	} else {
+		sc->sc_idle = WSLV_IDLE_STATE_ASLEEP;
+		evtimer_del(&sc->sc_idle_ev);
 	}
 
-publish:
+	if (nscreen != oscreen) {
+		if (nscreen) {
+			wslv_svideo(sc, 1);
+			wslv_wake(sc);
+		} else {
+			wslv_sleep(sc);
+		}
+	}
+
 	wslv_mqtt_tele(sc);
 }
 
