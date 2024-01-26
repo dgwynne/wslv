@@ -1835,11 +1835,8 @@ static const luaL_Reg wslv_luaL[] = {
 static int
 wslv_luaopen(struct wslv_softc *sc, lua_State *L)
 {
-	warnx("gettop:%d", lua_gettop(L));
 	luaL_newlib(L, wslv_luaL);
-	warnx("gettop:%d", lua_gettop(L));
 	lua_setglobal(L, "wslv");
-	warnx("gettop:%d", lua_gettop(L));
 
 	return (0);
 }
