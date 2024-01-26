@@ -2629,6 +2629,105 @@ static const struct lua_lv_constant lua_lv_label_long_mode_t[] = {
 };
 
 /*
+ * lv_led
+ */
+
+static int
+lua_lv_led_create(lua_State *L)
+{
+	return (lua_lv_obj_create_udata(L, lv_led_create));
+}
+
+static int
+lua_lv_led_brightness(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_led_class);
+	int bright;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		bright = luaL_checkinteger(L, 2);
+		lv_led_set_brightness(obj, bright);
+		break;
+	case 1:
+		bright = lv_led_get_brightness(obj);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushinteger(L, bright);
+
+	return (1);
+}
+
+static int
+lua_lv_led_color(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_led_class);
+	lv_color_t color = lua_lv_color_arg(L, 2);
+
+	lv_led_set_color(obj, color);
+
+	return (0);
+}
+
+static int
+lua_lv_led_on(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_led_class);
+
+	lv_led_on(obj);
+
+	return (0);
+}
+
+static int
+lua_lv_led_off(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_led_class);
+
+	lv_led_off(obj);
+
+	return (0);
+}
+
+static int
+lua_lv_led_toggle(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_led_class);
+
+	lv_led_toggle(obj);
+
+	return (0);
+}
+
+static int
+lua_lv_led_set(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_led_class);
+	int on = lua_toboolean(L, 2);
+
+	if (on)
+		lv_led_on(obj);
+	else
+		lv_led_off(obj);
+
+	return (0);
+}
+
+static const luaL_Reg lua_lv_led_methods[] = {
+	{ "brightness",		lua_lv_led_brightness },
+	{ "color",		lua_lv_led_color },
+	{ "on",			lua_lv_led_on },
+	{ "off",		lua_lv_led_off },
+	{ "toggle",		lua_lv_led_toggle },
+	{ "set",		lua_lv_led_set },
+
+	{ NULL,			NULL }
+};
+
+/*
  * lv_slider
  *
  * lv_slider is mostly lv_bar, so let lv_bar do most of the work
@@ -2915,6 +3014,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_checkbox_class,	lua_lv_checkbox_methods },
 	{ &lv_img_class,	lua_lv_img_methods },
 	{ &lv_label_class,	lua_lv_label_methods },
+	{ &lv_led_class,	lua_lv_led_methods },
 	{ &lv_slider_class,	lua_lv_slider_methods },
 	{ &lv_switch_class,	lua_lv_switch_methods },
 	{ &lv_tabview_class,	lua_lv_tabview_methods },
@@ -3224,6 +3324,7 @@ static const luaL_Reg lua_lv[] = {
 	{ "img",		lua_lv_img_create },
 	{ "image",		lua_lv_img_create },
 	{ "label",		lua_lv_label_create },
+	{ "led",		lua_lv_led_create },
 	{ "slider",		lua_lv_slider_create },
 	{ "switch",		lua_lv_switch_create },
 
