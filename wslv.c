@@ -565,7 +565,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 	switch (wsevt->type) {
 	case WSCONS_EVENT_MOUSE_ABSOLUTE_X:
 		v -= cc->minx;
-		v *= lv_disp_get_hor_res(disp);
+		v *= lv_disp_get_physical_hor_res(disp);
 		v /= cc->maxx - cc->minx;
 		wp->wp_state.p_x = v;
 		break;
