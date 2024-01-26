@@ -176,6 +176,7 @@ struct wslv_softc {
 	struct timeval			 sc_idle_time;
 	struct event			 sc_idle_ev;
 	unsigned int			 sc_idle;
+	unsigned int			 sc_idle_input;
 
 	struct wslv_pointer_list	 sc_pointer_list;
 
@@ -603,8 +604,6 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		wp->wp_state.p_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
-		wp->wp_state_synced = wp->wp_state;
-
 		idle = sc->sc_idle;
 		sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
 		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
@@ -612,7 +611,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		if (idle != WSLV_IDLE_STATE_AWAKE)
 			wslv_mqtt_tele(sc);
 
-		if (idle == WSLV_IDLE_STATE_ASLEEP) {
+		if (sc->sc_idle_input) {
 			/* wake the display up as soon as anything happens */
 			wslv_svideo(sc, 1);
 
@@ -623,6 +622,8 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 
 			return;
 		}
+
+		wp->wp_state_synced = wp->wp_state;
 
 		pe = malloc(sizeof(*pe));
 		if (pe != NULL) {
@@ -773,6 +774,7 @@ wslv_sleep(struct wslv_softc *sc)
 {
 	struct wslv_pointer *wp;
 
+	sc->sc_idle_input = 1;
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
 		wp->wp_lv_indev_drv.read_cb = wslv_pointer_idle;
 
@@ -805,9 +807,9 @@ wslv_wake(struct wslv_softc *sc)
 
 	/* the display has already been woken up */
 
-	sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
 		wp->wp_lv_indev_drv.read_cb = wslv_pointer_read;
+	sc->sc_idle_input = 0;
 }
 
 static int
