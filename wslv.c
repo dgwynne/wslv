@@ -410,35 +410,26 @@ main(int argc, char *argv[])
 //	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
 //	    sc->sc_ws_fb, sc->sc_ws_fb2, sc->sc_ws_fblen);
 
-warnx("%s[%u]", __func__, __LINE__);
 	sc->sc_lv_display = lv_display_create(sc->sc_ws_linebytes / LV_PX_SIZE,
 	    sc->sc_ws_vinfo.height);
 	if (sc->sc_lv_display == NULL)
 		err(1, "lv display create");
-warnx("%s[%u]", __func__, __LINE__);
 
 	lv_display_set_physical_resolution(sc->sc_lv_display,
 	    sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height);
 	lv_display_set_buffers(sc->sc_lv_display, sc->sc_ws_fb, sc->sc_ws_fb2,
 	    sc->sc_ws_fblen, LV_DISPLAY_RENDER_MODE_DIRECT);
-warnx("%s[%u]", __func__, __LINE__);
-warnx("%s[%u]", __func__, __LINE__);
 
 	if (sc->sc_ws_drm) {
 		lv_display_set_flush_cb(sc->sc_lv_display, drm_flush);
-warnx("%s[%u]", __func__, __LINE__);
 		lv_display_set_flush_wait_cb(sc->sc_lv_display,
 		    drm_wait_vsync);
-warnx("%s[%u]", __func__, __LINE__);
 		drm_event_set(sc->sc_lv_display);
-warnx("%s[%u]", __func__, __LINE__);
 	} else {
 		lv_display_set_flush_cb(sc->sc_lv_display, wslv_lv_flush);
 	}
-warnx("%s[%u]", __func__, __LINE__);
 
 	lv_display_set_user_data(sc->sc_lv_display, sc);
-warnx("%s[%u]", __func__, __LINE__);
 
 //	lv_disp_drv_init(&sc->sc_lv_disp_drv);
 //	sc->sc_lv_disp_drv.draw_buf = &sc->sc_lv_disp_buf;
@@ -465,23 +456,18 @@ warnx("%s[%u]", __func__, __LINE__);
 //		sc->sc_lv_disp->refr_timer = NULL;
 //	}
 
-warnx("%s[%u]", __func__, __LINE__);
 	fprintf(stderr,
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
 	    sc->sc_name, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height,
 	    sc->sc_ws_vinfo.depth, sc->sc_ws_fb, sc->sc_ws_fblen);
-warnx("%s[%u]", __func__, __LINE__);
 
 	wslv_pointer_set(sc);
-warnx("%s[%u]", __func__, __LINE__);
 
 	wslv_mqtt_connect(sc);
-warnx("%s[%u]", __func__, __LINE__);
 
 	event_set(&sc->sc_ws_ev, sc->sc_ws_fd, EV_READ|EV_PERSIST,
 	    wslv_ws_rd, sc);
 	event_add(&sc->sc_ws_ev, NULL);
-warnx("%s[%u]", __func__, __LINE__);
 
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
 	wslv_tick(0, 0, sc);
