@@ -33,7 +33,7 @@ LUA_LDFLAGS!=pkg-config --libs ${LUAPKG}
 LUA_LV_SRCS=lua_lv.c
 
 .for S in ${LUA_LV_SRCS}
-${S:.c=.o}: ${S}
+${S:.c=.o}: ${LV_CONF_PATH} ${S}
 	${LVCOMPILE} ${LUA_CFLAGS} -I${LVGL_SRC_DIR} -o ${.TARGET} ${.IMPSRC}
 .endfor
 
