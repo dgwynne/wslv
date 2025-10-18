@@ -20,13 +20,13 @@
 #define _WSLV_DRM_H_
 
 int		drm_init(void);
-void		drm_flush(lv_disp_drv_t *, const lv_area_t *, lv_color_t *);
-void		drm_wait_vsync(lv_disp_drv_t *);
+void		drm_flush(lv_display_t *, const lv_area_t *, uint8_t *);
+void		drm_wait_vsync(lv_display_t *);
 void		drm_get_sizes(lv_coord_t *, lv_coord_t *, lv_coord_t *,
 		    uint32_t *);
 
 void		*drm_get_fb(int);
-void		 drm_event_set(lv_disp_drv_t *);
+void		 drm_event_set(lv_display_t *);
 int		 drm_svideo(int);
 void		 drm_refresh(void);
 

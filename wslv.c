@@ -56,13 +56,12 @@
 
 #define WSLV_REFR_PERIOD 40
 
-uint32_t wslv_disp_refr_period = WSLV_REFR_PERIOD;
-uint32_t wslv_indev_refr_period = WSLV_REFR_PERIOD;
+int wslv_refr_period = WSLV_REFR_PERIOD;
 
 LV_IMG_DECLARE(mouse_cursor_icon);
 
 /* lv_spng.c */
-int	lv_spng_init(void);
+//int	lv_spng_init(void);
 
 #include <ctype.h>
 static int
@@ -125,7 +124,6 @@ struct wslv_pointer {
 	const char			*wp_devname;
 	unsigned int			 wp_ws_type;
 	struct event			 wp_ev;
-	lv_indev_drv_t			 wp_lv_indev_drv;
 	lv_indev_t			*wp_lv_indev;
 	lv_obj_t			*wp_lv_cursor;
 
@@ -166,10 +164,9 @@ struct wslv_softc {
 	unsigned int			 sc_ws_omode;
 	int (*sc_ws_svideo)(struct wslv_softc *, int);
 
-	lv_disp_draw_buf_t		 sc_lv_disp_buf;
-	lv_disp_drv_t			 sc_lv_disp_drv;
-	lv_disp_t			*sc_lv_disp;
-
+//	lv_disp_draw_buf_t		 sc_lv_disp_buf;
+//	lv_disp_drv_t			 sc_lv_disp_drv;
+	lv_display_t			*sc_lv_display;
 
 	struct event			 sc_tick;
 
@@ -235,8 +232,8 @@ static void		wslv_tick(int, short, void *);
 static void		wslv_idle_ev(int, short, void *);
 static void		wslv_wake(struct wslv_softc *);
 
-static void		wslv_lv_flush(lv_disp_drv_t *, const lv_area_t *,
-			    lv_color_t *);
+static void		wslv_lv_flush(lv_display_t *, const lv_area_t *,
+			    uint8_t *);
 
 static int		wslv_svideo(struct wslv_softc *, int);
 static int		wslv_wsfb_svideo(struct wslv_softc *, int);
@@ -376,8 +373,8 @@ main(int argc, char *argv[])
 	wslv_mqtt_init(sc);
 
 	lv_init();
-	lv_spng_init();
-	lv_freetype_init(0, 0, 0);
+//	lv_spng_init();
+	lv_freetype_init(0);
 
 	if (sc->sc_ws_drm) {
 		lv_coord_t p, w, h;
@@ -387,7 +384,7 @@ main(int argc, char *argv[])
 			exit(1);
 
 		drm_get_sizes(&p, &w, &h, NULL);
-		if (p % sizeof(lv_color_int_t))
+		if (p % LV_PX_SIZE)
 			errx(1, "drm pitch is not a multiple of pixel sizes");
 
 		sc->sc_ws_vinfo.width = w;
@@ -403,53 +400,88 @@ main(int argc, char *argv[])
 		if (sc->sc_ws_fb2 == NULL)
 			err(1, "drm buffer 2");
 
-		sc->sc_ws_fblen = w * h;
+		sc->sc_ws_fblen = p * h;
 		sc->sc_ws_svideo = wslv_drm_svideo;
 	} else
 		sc->sc_ws_svideo = wslv_wsfb_svideo;
 
 	event_init();
 
-	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
-	    sc->sc_ws_fb, sc->sc_ws_fb2, sc->sc_ws_fblen);
+//	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
+//	    sc->sc_ws_fb, sc->sc_ws_fb2, sc->sc_ws_fblen);
 
-	lv_disp_drv_init(&sc->sc_lv_disp_drv);
-	sc->sc_lv_disp_drv.draw_buf = &sc->sc_lv_disp_buf;
-	sc->sc_lv_disp_drv.hor_res =
-	    sc->sc_ws_linebytes / sizeof(lv_color_int_t);
-	if (sc->sc_lv_disp_drv.hor_res != sc->sc_ws_vinfo.width)
-		sc->sc_lv_disp_drv.physical_hor_res = sc->sc_ws_vinfo.width;
-	sc->sc_lv_disp_drv.ver_res = sc->sc_ws_vinfo.height;
+warnx("%s[%u]", __func__, __LINE__);
+	sc->sc_lv_display = lv_display_create(sc->sc_ws_linebytes / LV_PX_SIZE,
+	    sc->sc_ws_vinfo.height);
+	if (sc->sc_lv_display == NULL)
+		err(1, "lv display create");
+warnx("%s[%u]", __func__, __LINE__);
+
+	lv_display_set_physical_resolution(sc->sc_lv_display,
+	    sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height);
+	lv_display_set_buffers(sc->sc_lv_display, sc->sc_ws_fb, sc->sc_ws_fb2,
+	    sc->sc_ws_fblen, LV_DISPLAY_RENDER_MODE_DIRECT);
+warnx("%s[%u]", __func__, __LINE__);
+warnx("%s[%u]", __func__, __LINE__);
+
 	if (sc->sc_ws_drm) {
-		sc->sc_lv_disp_drv.flush_cb = drm_flush;
-		sc->sc_lv_disp_drv.wait_cb = drm_wait_vsync;
-		sc->sc_lv_disp_drv.full_refresh = 0;
-		sc->sc_lv_disp_drv.direct_mode = 1;
-		drm_event_set(&sc->sc_lv_disp_drv);
+		lv_display_set_flush_cb(sc->sc_lv_display, drm_flush);
+warnx("%s[%u]", __func__, __LINE__);
+		lv_display_set_flush_wait_cb(sc->sc_lv_display,
+		    drm_wait_vsync);
+warnx("%s[%u]", __func__, __LINE__);
+		drm_event_set(sc->sc_lv_display);
+warnx("%s[%u]", __func__, __LINE__);
 	} else {
-		sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
-		sc->sc_lv_disp_drv.direct_mode = 1;
+		lv_display_set_flush_cb(sc->sc_lv_display, wslv_lv_flush);
 	}
-	sc->sc_lv_disp_drv.user_data = sc;
+warnx("%s[%u]", __func__, __LINE__);
 
-	sc->sc_lv_disp = lv_disp_drv_register(&sc->sc_lv_disp_drv);
-	if (0 && sc->sc_ws_drm) {
-		lv_timer_del(sc->sc_lv_disp->refr_timer);
-		sc->sc_lv_disp->refr_timer = NULL;
-	}
+	lv_display_set_user_data(sc->sc_lv_display, sc);
+warnx("%s[%u]", __func__, __LINE__);
 
+//	lv_disp_drv_init(&sc->sc_lv_disp_drv);
+//	sc->sc_lv_disp_drv.draw_buf = &sc->sc_lv_disp_buf;
+//	sc->sc_lv_disp_drv.hor_res =
+//	    sc->sc_ws_linebytes / sizeof(lv_color_int_t);
+//	if (sc->sc_lv_disp_drv.hor_res != sc->sc_ws_vinfo.width)
+//		sc->sc_lv_disp_drv.physical_hor_res = sc->sc_ws_vinfo.width;
+//	sc->sc_lv_disp_drv.ver_res = sc->sc_ws_vinfo.height;
+//	if (sc->sc_ws_drm) {
+//		sc->sc_lv_disp_drv.flush_cb = drm_flush;
+//		sc->sc_lv_disp_drv.wait_cb = drm_wait_vsync;
+//		sc->sc_lv_disp_drv.full_refresh = 0;
+//		sc->sc_lv_disp_drv.direct_mode = 1;
+//		drm_event_set(&sc->sc_lv_disp_drv);
+//	} else {
+//		sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
+//		sc->sc_lv_disp_drv.direct_mode = 1;
+//	}
+//	sc->sc_lv_disp_drv.user_data = sc;
+
+//	sc->sc_lv_disp = lv_disp_drv_register(&sc->sc_lv_disp_drv);
+//	if (0 && sc->sc_ws_drm) {
+//		lv_timer_del(sc->sc_lv_disp->refr_timer);
+//		sc->sc_lv_disp->refr_timer = NULL;
+//	}
+
+warnx("%s[%u]", __func__, __LINE__);
 	fprintf(stderr,
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
 	    sc->sc_name, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height,
 	    sc->sc_ws_vinfo.depth, sc->sc_ws_fb, sc->sc_ws_fblen);
+warnx("%s[%u]", __func__, __LINE__);
 
 	wslv_pointer_set(sc);
+warnx("%s[%u]", __func__, __LINE__);
 
 	wslv_mqtt_connect(sc);
+warnx("%s[%u]", __func__, __LINE__);
 
 	event_set(&sc->sc_ws_ev, sc->sc_ws_fd, EV_READ|EV_PERSIST,
 	    wslv_ws_rd, sc);
 	event_add(&sc->sc_ws_ev, NULL);
+warnx("%s[%u]", __func__, __LINE__);
 
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
 	wslv_tick(0, 0, sc);
@@ -545,7 +577,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 {
 	const struct wsmouse_calibcoords *cc = &wp->wp_ws_calib;
 	struct wslv_pointer_event *pe;
-	lv_disp_t *disp = wp->wp_lv_indev_drv.disp;
+	lv_display_t *disp = lv_indev_get_display(wp->wp_lv_indev);
 	int v = wsevt->value;
 	unsigned int idle;
 	int d;
@@ -631,7 +663,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 			TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
 		}
 
-		lv_indev_read_timer_cb(wp->wp_lv_indev_drv.read_timer);
+		lv_indev_read(wp->wp_lv_indev);
 		wslv_refresh(sc);
 		break;
 	default:
@@ -661,9 +693,9 @@ wslv_pointer_event(int fd, short revents, void *arg)
 }
 
 static void
-wslv_pointer_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
+wslv_pointer_read(lv_indev_t *indev, lv_indev_data_t *data)
 {
-	struct wslv_pointer *wp = drv->user_data;
+	struct wslv_pointer *wp = lv_indev_get_user_data(indev);
 	struct wslv_pointer_state *p = &wp->wp_state_synced;
 	struct wslv_pointer_event *pe;
 
@@ -683,9 +715,9 @@ wslv_pointer_read(lv_indev_drv_t *drv, lv_indev_data_t *data)
 }
 
 static void
-wslv_pointer_idle(lv_indev_drv_t *drv, lv_indev_data_t *data)
+wslv_pointer_idle(lv_indev_t *indev, lv_indev_data_t *data)
 {
-	struct wslv_pointer *wp = drv->user_data;
+	struct wslv_pointer *wp = lv_indev_get_user_data(indev);
 
 	data->point.x = wp->wp_state_synced.p_x;
 	data->point.y = wp->wp_state_synced.p_y;
@@ -719,13 +751,17 @@ wslv_pointer_set(struct wslv_softc *sc)
 		event_set(&wp->wp_ev, fd, EV_READ|EV_PERSIST,
 		    wslv_pointer_event, wp);
 
-		lv_indev_drv_init(&wp->wp_lv_indev_drv);
-		wp->wp_lv_indev_drv.type = LV_INDEV_TYPE_POINTER;
-		wp->wp_lv_indev_drv.read_cb = wslv_pointer_read;
-		wp->wp_lv_indev_drv.user_data = wp;
+		wp->wp_lv_indev = lv_indev_create();
+		if (wp->wp_lv_indev == NULL) {
+			errx(1, "lv_indev_create for %s failed",
+			    wp->wp_devname);
+		}
+		lv_indev_set_type(wp->wp_lv_indev, LV_INDEV_TYPE_POINTER);
+		lv_indev_set_mode(wp->wp_lv_indev, LV_INDEV_MODE_EVENT);
+		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_read);
+		lv_indev_set_user_data(wp->wp_lv_indev, wp);
 
-		wp->wp_lv_indev = lv_indev_drv_register(&wp->wp_lv_indev_drv);
-
+#if 0
 		if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL) {
 			wp->wp_lv_cursor = lv_img_create(lv_scr_act());
 			if (wp->wp_lv_cursor == NULL)
@@ -733,6 +769,7 @@ wslv_pointer_set(struct wslv_softc *sc)
 			lv_img_set_src(wp->wp_lv_cursor, &mouse_cursor_icon);
 			lv_indev_set_cursor(wp->wp_lv_indev, wp->wp_lv_cursor);
 		}
+#endif
 
 		event_add(&wp->wp_ev, NULL);
 	}
@@ -776,7 +813,7 @@ wslv_sleep(struct wslv_softc *sc)
 
 	sc->sc_idle_input = 1;
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
-		wp->wp_lv_indev_drv.read_cb = wslv_pointer_idle;
+		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_idle);
 
 	wslv_svideo(sc, 0);
 }
@@ -808,7 +845,7 @@ wslv_wake(struct wslv_softc *sc)
 	/* the display has already been woken up */
 
 	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
-		wp->wp_lv_indev_drv.read_cb = wslv_pointer_read;
+		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_read);
 	sc->sc_idle_input = 0;
 }
 
@@ -913,19 +950,19 @@ wslv_wsfb_svideo(struct wslv_softc *sc, int on)
 }
 
 static void
-wslv_lv_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area,
-    lv_color_t *color_p)
+wslv_lv_flush(lv_display_t *display, const lv_area_t *area,
+    uint8_t *pixels)
 {
-	struct wslv_softc *sc = disp_drv->user_data;
+//	struct wslv_softc *sc = lv_display_get_user_data(display);
 
-	if (lv_disp_flush_is_last(disp_drv)) {
+	if (lv_display_flush_is_last(display)) {
 		//warnx("%s: hi", __func__);
 		/* msync? */
 	} else {
 		//warnx("%s: lo", __func__);
 	}
 
-	lv_disp_flush_ready(disp_drv);
+	lv_display_flush_ready(display);
 }
 
 /* */
@@ -1473,7 +1510,7 @@ wslv_ms(void)
 const lv_font_t *
 wslv_font_default(void)
 {
-	return (&lv_font_montserrat_12_subpx);
+	return (LV_FONT_DEFAULT);
 }
 
 /*

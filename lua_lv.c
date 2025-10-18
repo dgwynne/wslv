@@ -24,6 +24,7 @@
 #include <lauxlib.h>
 
 #include "lvgl/lvgl.h"
+#include "lvgl/src/core/lv_obj_class_private.h" /* XXX */
 
 #ifndef nitems
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
@@ -41,6 +42,10 @@
 #else
 #define LVDPRINTF(f...) do { } while (0)
 #endif
+
+struct lua_lv_font {
+	lv_font_t			*font;
+};
 
 struct lua_lv_constant {
 	const char			*k;
@@ -60,7 +65,7 @@ struct lua_lv_constants {
 static const char lua_lv_obj_type[] = LUA_LV_OBJ_T;
 
 static const char lua_lv_style_type[] = "lv_style_t";
-static const char lua_lv_ft_type[] = "lv_ft_info_t";
+static const char lua_lv_font_type[] = "lv_font_t";
 
 static const char lua_lv_state[] = "_lua_lv_state";
 static const char lua_lv_btnmatrix_map[] = "_lua_lv_btnmatrix_map";
@@ -560,20 +565,6 @@ lua_lv_obj_del_async(lua_State *L)
 }
 
 static int
-lua_lv_obj_del_delayed(lua_State *L)
-{
-	lv_obj_t *obj = lua_lv_check_obj(L, 1);
-	int ms = luaL_checkinteger(L, 2);
-	luaL_argcheck(L, ms > 0, 2, "milliseconds must be > 0");
-	LVDPRINTF("obj:%p, ms:%d", obj, ms);
-	if (obj == lv_scr_act())
-		return luaL_error(L, "object is the active screen");
-
-	lv_obj_del_delayed(obj, ms);
-	return (0);
-}
-
-static int
 lua_lv_obj_remove_style_all(lua_State *L)
 {
 	lv_obj_t *obj = lua_lv_check_obj(L, 1);
@@ -776,7 +767,7 @@ lua_lv_obj_event_send(lua_State *L)
 	uint32_t code = luaL_checkinteger(L, 2);
 	lv_res_t res;
 
-	res = lv_event_send(obj, code, NULL);
+	res = lv_obj_send_event(obj, code, NULL);
 
 	lua_pushboolean(L, res == LV_RES_OK);
 	return (1);
@@ -1240,7 +1231,7 @@ lua_lv_color(lua_State *L)
 		return luaL_error(L, "invalid number of arguments");
 	}
 
-	lua_pushinteger(L, c.full);
+	lua_pushinteger(L, lv_color_to_int(c));
 	return (1);
 }
 
@@ -1263,7 +1254,7 @@ lua_lv_palette_lighten(lua_State *L)
 
 	c = lv_palette_lighten(palette, v);
 
-	lua_pushinteger(L, c.full & 0xffffff);
+	lua_pushinteger(L, lv_color_to_int(c));
 	return (1);
 }
 
@@ -1286,7 +1277,7 @@ lua_lv_palette_darken(lua_State *L)
 
 	c = lv_palette_darken(palette, v);
 
-	lua_pushinteger(L, c.full & 0xffffff);
+	lua_pushinteger(L, lv_color_to_int(c));
 	return (1);
 }
 
@@ -1302,12 +1293,12 @@ lua_lv_grid_fr(lua_State *L)
  */
 
 static int
-lua_lv_ft_create(lua_State *L)
+lua_lv_font_create(lua_State *L)
 {
 	const char *name = luaL_checkstring(L, 1);
 	int weight = luaL_checkinteger(L, 2);
 	int style = FT_FONT_STYLE_NORMAL;
-	lv_ft_info_t *ft_info;
+	struct lua_lv_font *lf;
 
 	switch (lua_gettop(L)) {
 	case 3:
@@ -1321,37 +1312,29 @@ lua_lv_ft_create(lua_State *L)
 
 	luaL_argcheck(L, weight > 0, 2, "weight must be positive");
 
-	ft_info = lua_newuserdata(L, sizeof(*ft_info));
-	luaL_setmetatable(L, lua_lv_style_type);
-	ft_info->name = NULL;
-	ft_info->weight = weight;
-	ft_info->style = style;
-	ft_info->mem = NULL;
-	ft_info->font = NULL;
+	lf = lua_newuserdata(L, sizeof(*lf));
+	lf->font = NULL;
+	luaL_setmetatable(L, lua_lv_font_type);
 
-	luaL_setmetatable(L, lua_lv_ft_type);
+	lf->font = lv_freetype_font_create(name,
+	    LV_FREETYPE_FONT_RENDER_MODE_BITMAP, weight, style);
+	if (lf->font == NULL)
+		return luaL_error(L, "unable to create font");
 
-	ft_info->name = strdup(name);
-	if (ft_info->name == NULL)
-		return luaL_error(L, "unable to copy font name");
-
-	if (!lv_ft_font_init(ft_info))
-		return luaL_error(L, "font init failed");
-
-	/* once a style is created it should never go away */
+	/* once a font is created it should never go away */
 	lua_newtable(L);
 	lua_pushvalue(L, -2);
-	lua_rawsetp(L, -2, ft_info);
+	lua_rawsetp(L, -2, lf);
 
-	lua_rawsetp(L, LUA_REGISTRYINDEX, ft_info);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lf);
 
 	return (1);
 }
 
 static int
-lua_lv_ft__index(lua_State *L)
+lua_lv_font__index(lua_State *L)
 {
-	lv_ft_info_t *ft_info = luaL_checkudata(L, 1, lua_lv_ft_type);
+	struct lua_lv_font *lf = luaL_checkudata(L, 1, lua_lv_font_type);
 	const char *key = lua_tostring(L, 2);
 
 	if (lua_getmetatable(L, -2)) {
@@ -1364,31 +1347,30 @@ lua_lv_ft__index(lua_State *L)
 }
 
 static int
-lua_lv_ft__newindex(lua_State *L)
+lua_lv_font__newindex(lua_State *L)
 {
-	lv_ft_info_t *ft_info = luaL_checkudata(L, 1, lua_lv_ft_type);
-	LVDPRINTF("ft_info:%p, gettop():%d", ft_info, lua_gettop(L));
+	struct lua_lv_font *lf = luaL_checkudata(L, 1, lua_lv_font_type);
+	LVDPRINTF("lf:%p, gettop():%d", lf, lua_gettop(L));
 	return (0);
 }
 
 static int
-lua_lv_ft__gc(lua_State *L)
+lua_lv_font__gc(lua_State *L)
 {
-	lv_ft_info_t *ft_info = luaL_checkudata(L, 1, lua_lv_ft_type);
+	struct lua_lv_font *lf = luaL_checkudata(L, 1, lua_lv_font_type);
 
-	if (ft_info->font)
-		lv_ft_font_destroy(ft_info->font);
-	free((void *)ft_info->name);
+	if (lf->font != NULL)
+		lv_freetype_font_delete(lf->font);
 
 	return (0);
 }
 
-struct lua_lv_font {
+struct lua_builtin_lv_font {
 	const char		*k;
 	const lv_font_t		*v;
 };
 
-static const struct lua_lv_font lua_lv_fonts[] = {
+static const struct lua_builtin_lv_font lua_builtin_lv_fonts[] = {
 #if LV_FONT_MONTSERRAT_8
 	{ "MONTSERRAT_8",		&lv_font_montserrat_8 },
 #endif
@@ -1462,13 +1444,13 @@ static const struct lua_lv_font lua_lv_fonts[] = {
 };
 
 static void
-lua_lv_fonts_init(lua_State *L)
+lua_builtin_lv_fonts_init(lua_State *L)
 {
 	size_t i;
 
 	lua_newtable(L);
-	for (i = 0; i < nitems(lua_lv_fonts); i++) {
-		const struct lua_lv_font *f = &lua_lv_fonts[i];
+	for (i = 0; i < nitems(lua_builtin_lv_fonts); i++) {
+		const struct lua_builtin_lv_font *f = &lua_builtin_lv_fonts[i];
 		lua_pushstring(L, f->k);
 		lua_pushlightuserdata(L, (void *)f->v);
 		lua_rawset(L, -3);
@@ -1478,7 +1460,7 @@ lua_lv_fonts_init(lua_State *L)
 	lua_pushlightuserdata(L, (void *)LV_FONT_DEFAULT);
 	lua_rawset(L, -3);
 
-	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
+	lua_rawsetp(L, LUA_REGISTRYINDEX, lua_builtin_lv_fonts);
 }
 
 /*
@@ -1527,11 +1509,11 @@ lua_lv_style_font(lua_State *L, int idx)
 	lv_style_value_t v;
 	lv_font_t *f;
 
-	if (luaL_testudata(L, idx, lua_lv_ft_type)) {
-		lv_ft_info_t *ft_info = lua_touserdata(L, idx);
-		f = ft_info->font;
+	if (luaL_testudata(L, idx, lua_lv_font_type)) {
+		struct lua_lv_font *lf = lua_touserdata(L, idx);
+		f = lf->font;
 	} else {
-		lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_fonts);
+		lua_rawgetp(L, LUA_REGISTRYINDEX, lua_builtin_lv_fonts);
 		lua_pushvalue(L, idx);
 		lua_rawget(L, -2);
 
@@ -1649,7 +1631,6 @@ static const struct lua_lv_style lua_lv_styles[] = {
 	{ "anim",		LV_STYLE_ANIM,		lua_lv_style_ },
 #endif
 	{ "anim_time",		LV_STYLE_ANIM_TIME,	lua_lv_style_num },
-	{ "anim_speed",		LV_STYLE_ANIM_SPEED,	lua_lv_style_num },
 #if 0
 	{ "transition",		LV_STYLE_TRANSITION,	lua_lv_style_num },
 #endif
@@ -1846,25 +1827,6 @@ lua_lv_style_set(lua_State *L)
 }
 
 static int
-lua_lv_style_inherit(lua_State *L)
-{
-	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
-	const struct lua_lv_style *s;
-	lv_style_value_t v;
-
-	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
-	lua_pushvalue(L, 2);
-	lua_rawget(L, -2);
-
-	s = lua_touserdata(L, -1);
-	luaL_argcheck(L, s != NULL, 2, "unknown style property");
-
-	lv_style_set_prop_meta(style, s->prop, LV_STYLE_PROP_META_INHERIT);
-
-	return (0);
-}
-
-static int
 lua_lv_style_remove(lua_State *L)
 {
 	lv_style_t *style = luaL_checkudata(L, 1, lua_lv_style_type);
@@ -1953,7 +1915,6 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 	{ "center",		lua_lv_obj_center },
 	{ "del",		lua_lv_obj_del },
 	{ "del_async",		lua_lv_obj_del_async },
-	{ "del_delayed",	lua_lv_obj_del_delayed },
 	{ "remove_style_all",	lua_lv_obj_remove_style_all },
 	{ "invalidate",		lua_lv_obj_invalidate },
 
@@ -2212,7 +2173,7 @@ lua_lv_btnmatrix_map__gc(lua_State *L)
 static int
 lua_lv_btnmatrix_set_map(lua_State *L)
 {
-	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_btnmatrix_class);
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_buttonmatrix_class);
 	char **map;
 	int len;
 	int i;
@@ -2312,7 +2273,7 @@ static const luaL_Reg lua_lv_checkbox_methods[] = {
 static int
 lua_lv_img_set_src(lua_State *L)
 {
-	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_img_class);
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_image_class);
 	const char *src = luaL_checkstring(L, 2);
 
 	lv_img_set_src(obj, src); /* this doesnt fail? */
@@ -2461,29 +2422,6 @@ lua_lv_img_antialias(lua_State *L)
 	return (1);
 }
 
-static int
-lua_lv_img_size_mode(lua_State *L)
-{
-	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_label_class);
-	lv_img_size_mode_t mode;
-
-	switch (lua_gettop(L)) {
-	case 2:
-		mode = luaL_checkinteger(L, 2);
-		lv_img_set_size_mode(obj, mode);
-		break;
-	case 1:
-		break;
-	default:
-		return luaL_error(L, "invalid number of arguments");
-	}
-
-	mode = lv_img_get_size_mode(obj);
-	lua_pushinteger(L, mode);
-
-	return (1);
-}
-
 static const luaL_Reg lua_lv_img_methods[] = {
 	{ "set_src",		lua_lv_img_set_src },
 
@@ -2493,7 +2431,6 @@ static const luaL_Reg lua_lv_img_methods[] = {
 	{ "pivot",		lua_lv_img_pivot },
 	{ "zoom",		lua_lv_img_zoom },
 	{ "antialias",		lua_lv_img_antialias },
-	{ "size_mode",		lua_lv_img_size_mode },
 
 	{ NULL,			NULL }
 };
@@ -2776,10 +2713,7 @@ lua_lv_tabview_create(lua_State *L)
 	if (!lua_isnoneornil(L, 1))
 		parent = lua_lv_check_obj(L, 1);
 
-	tab_pos = luaL_checkinteger(L, 2);
-	tab_size = luaL_checkinteger(L, 3);
-
-	obj = lv_tabview_create(parent, tab_pos, tab_size);
+	obj = lv_tabview_create(parent);
 	if (obj == NULL)
 		return luaL_error(L, "lv_tabview_create failed");
 
@@ -3009,10 +2943,10 @@ struct lua_lv_obj_class {
 static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_obj_class,	lua_lv_obj_methods },
 	{ &lv_bar_class,	lua_lv_bar_methods },
-	{ &lv_btn_class,	lua_lv_btn_methods },
-	{ &lv_btnmatrix_class,	lua_lv_btnmatrix_methods },
+	{ &lv_button_class,	lua_lv_btn_methods },
+	{ &lv_buttonmatrix_class,	lua_lv_btnmatrix_methods },
 	{ &lv_checkbox_class,	lua_lv_checkbox_methods },
-	{ &lv_img_class,	lua_lv_img_methods },
+	{ &lv_image_class,	lua_lv_img_methods },
 	{ &lv_label_class,	lua_lv_label_methods },
 	{ &lv_led_class,	lua_lv_led_methods },
 	{ &lv_slider_class,	lua_lv_slider_methods },
@@ -3051,7 +2985,6 @@ static const struct lua_lv_constant lua_lv_part_t[] = {
 	{ "KNOB",		LV_PART_KNOB },
 	{ "SELECTED",		LV_PART_SELECTED },
 	{ "ITEMS",		LV_PART_ITEMS },
-	{ "TICKS",		LV_PART_TICKS },
 	{ "CURSOR",		LV_PART_CURSOR },
 	{ "CUSTOM_FIRST",	LV_PART_CUSTOM_FIRST },
 
@@ -3156,8 +3089,6 @@ static const struct lua_lv_constant lua_lv_event_t[] = {
 	{ "DRAW_POST_BEGIN",	LV_EVENT_DRAW_POST_BEGIN },
 	{ "DRAW_POST",		LV_EVENT_DRAW_POST },
 	{ "DRAW_POST_END",	LV_EVENT_DRAW_POST_END },
-	{ "DRAW_PART_BEGIN",	LV_EVENT_DRAW_PART_BEGIN },
-	{ "DRAW_PART_END",	LV_EVENT_DRAW_PART_END },
 
 	{ "VALUE_CHANGED",	LV_EVENT_VALUE_CHANGED },
 	{ "INSERT",		LV_EVENT_INSERT },
@@ -3332,8 +3263,8 @@ static const luaL_Reg lua_lv[] = {
 	{ "tileview",		lua_lv_tileview_create },
 
 	{ "style",		lua_lv_style_create },
-	{ "ft",			lua_lv_ft_create },
-	{ "ttf",		lua_lv_ft_create },
+	{ "ft",			lua_lv_font_create },
+	{ "ttf",		lua_lv_font_create },
 
 	{ "scr_act",		lua_lv_scr_act },
 	{ "hor_res",		lua_lv_hor_res },
@@ -3377,7 +3308,7 @@ luaopen_lv(lua_State *L)
 		lua_rawsetp(L, LUA_REGISTRYINDEX, c->obj_class);
 	}
 
-	lua_lv_fonts_init(L);
+	lua_builtin_lv_fonts_init(L);
 	lua_lv_palette_init(L);
 	lua_lv_styles_init(L);
 
@@ -3421,10 +3352,6 @@ luaopen_lv(lua_State *L)
 		lua_pushcfunction(L, lua_lv_style_set);
 		lua_settable(L, -3);
 
-		lua_pushliteral(L, "inherit");
-		lua_pushcfunction(L, lua_lv_style_inherit);
-		lua_settable(L, -3);
-
 		lua_pushliteral(L, "remove");
 		lua_pushcfunction(L, lua_lv_style_remove);
 		lua_settable(L, -3);
@@ -3435,17 +3362,17 @@ luaopen_lv(lua_State *L)
 	}
 	lua_pop(L, 1);
 
-	if (luaL_newmetatable(L, lua_lv_ft_type)) {
+	if (luaL_newmetatable(L, lua_lv_font_type)) {
 		lua_pushliteral(L, "__gc");
-		lua_pushcfunction(L, lua_lv_ft__gc);
+		lua_pushcfunction(L, lua_lv_font__gc);
 		lua_settable(L, -3);
 
 		lua_pushliteral(L, "__index");
-		lua_pushcfunction(L, lua_lv_ft__index);
+		lua_pushcfunction(L, lua_lv_font__index);
 		lua_settable(L, -3);
 
 		lua_pushliteral(L, "__newindex");
-		lua_pushcfunction(L, lua_lv_ft__newindex);
+		lua_pushcfunction(L, lua_lv_font__newindex);
 		lua_settable(L, -3);
 
 		lua_pushliteral(L, "__metatable");

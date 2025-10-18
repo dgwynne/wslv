@@ -19,6 +19,8 @@
 #include <spng.h>
 #include <lvgl.h>
 
+#include "lvgl/src/draw/lv_image_decoder_private.h"
+
 static int
 lv_spng_read(spng_ctx *ctx, void *usr, void *dst, size_t len)
 {
@@ -33,21 +35,22 @@ lv_spng_read(spng_ctx *ctx, void *usr, void *dst, size_t len)
 }
 
 static lv_res_t
-lv_spng_info(lv_img_decoder_t *dec, const void *src, lv_img_header_t *header)
+lv_spng_info(lv_image_decoder_t *dec, const void *src,
+    lv_image_header_t *header)
 {
-	lv_img_src_t stype = lv_img_src_get_type(src);
+	lv_image_src_t stype = lv_image_src_get_type(src);
 	spng_ctx *ctx;
 	struct spng_ihdr ihdr;
 	lv_fs_file_t f;
-        const lv_img_dsc_t *idsc;
-	lv_res_t res = LV_RES_INV;
+        const lv_image_dsc_t *idsc;
+	lv_res_t res = LV_RESULT_INVALID;
 
 	ctx = spng_ctx_new(0);
 	if (ctx == NULL)
-		return (LV_RES_INV);
+		return (LV_RESULT_INVALID);
 
 	switch (stype) {
-	case LV_IMG_SRC_FILE:
+	case LV_IMAGE_SRC_FILE:
 		if (lv_fs_open(&f, src, LV_FS_MODE_RD) != LV_FS_RES_OK)
 			goto free_ctx;
 
@@ -55,7 +58,7 @@ lv_spng_info(lv_img_decoder_t *dec, const void *src, lv_img_header_t *header)
 			goto close;
 		break;
 
-	case LV_IMG_SRC_VARIABLE:
+	case LV_IMAGE_SRC_VARIABLE:
 		idsc = src;
 		if (spng_set_png_buffer(ctx, idsc->data, idsc->data_size) != 0)
 			goto free_ctx;
@@ -69,23 +72,22 @@ lv_spng_info(lv_img_decoder_t *dec, const void *src, lv_img_header_t *header)
 	if (spng_get_ihdr(ctx, &ihdr) != 0)
 		goto close;
 
-	header->always_zero = 0;
 	header->w = ihdr.width;
 	header->h = ihdr.height;
 
 	switch (ihdr.color_type) {
 	case SPNG_COLOR_TYPE_GRAYSCALE_ALPHA:
 	case SPNG_COLOR_TYPE_TRUECOLOR_ALPHA:
-		header->cf = LV_IMG_CF_TRUE_COLOR_ALPHA;
+		header->cf = LV_COLOR_FORMAT_ARGB8888;
 		break;
 	default:
-		header->cf = LV_IMG_CF_TRUE_COLOR;
+		header->cf = LV_COLOR_FORMAT_RGB888;
 		break;
 	}
-	res = LV_RES_OK;
+	res = LV_RESULT_OK;
 
 close:
-	if (stype == LV_IMG_SRC_FILE)
+	if (stype == LV_IMAGE_SRC_FILE)
 		lv_fs_close(&f);
 free_ctx:
 	spng_ctx_free(ctx);
@@ -93,23 +95,23 @@ free_ctx:
 }
 
 static lv_res_t
-lv_spng_open(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
+lv_spng_open(lv_image_decoder_t *dec, lv_image_decoder_dsc_t *dsc)
 {
 	uint8_t *img_data = NULL;
 	spng_ctx *ctx;
 	struct spng_ihdr ihdr;
 	lv_fs_file_t f;
-	const lv_img_dsc_t *idsc;
-	lv_res_t res = LV_RES_INV;
+	const lv_image_dsc_t *idsc;
+	lv_res_t res = LV_RESULT_INVALID;
 	size_t img_size, i;
 	int fmt = SPNG_FMT_RGBA8;
 
 	ctx = spng_ctx_new(0);
 	if (ctx == NULL)
-		return (LV_RES_INV);
+		return (LV_RESULT_INVALID);
 
 	switch (dsc->src_type) {
-	case LV_IMG_SRC_FILE:
+	case LV_IMAGE_SRC_FILE:
 		if (lv_fs_open(&f, dsc->src, LV_FS_MODE_RD) != LV_FS_RES_OK)
 			goto free_ctx;
 
@@ -117,7 +119,7 @@ lv_spng_open(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
 			goto close;
 		break;
 
-	case LV_IMG_SRC_VARIABLE:
+	case LV_IMAGE_SRC_VARIABLE:
 		idsc = dsc->src;
 		if (spng_set_png_buffer(ctx, idsc->data, idsc->data_size) != 0)
 			goto free_ctx;
@@ -130,12 +132,12 @@ lv_spng_open(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
 	if (spng_decoded_image_size(ctx, fmt, &img_size) != 0)
 		goto close;
 
-	img_data = lv_mem_alloc(img_size);
+	img_data = lv_malloc(img_size);
 	if (img_data == NULL)
 		goto close;
 
 	if (spng_decode_image(ctx, img_data, img_size, fmt, 0) != 0) {
-		lv_mem_free(img_data);
+		lv_free(img_data);
 		goto close;
 	}
 
@@ -153,10 +155,10 @@ lv_spng_open(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
 	}
 
 	dsc->img_data = img_data;
-	res = LV_RES_OK;
+	res = LV_RESULT_OK;
 
 close:
-	if (dsc->src_type == LV_IMG_SRC_FILE)
+	if (dsc->src_type == LV_IMAGE_SRC_FILE)
 		lv_fs_close(&f);
 free_ctx:
 	spng_ctx_free(ctx);
@@ -164,10 +166,10 @@ free_ctx:
 }
 
 static void
-lv_spng_close(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
+lv_spng_close(lv_image_decoder_t *dec, lv_image_decoder_dsc_t *dsc)
 {
 	if (dsc->img_data != NULL) {
-		lv_mem_free((void *)dsc->img_data);
+		lv_free((void *)dsc->img_data);
 		dsc->img_data = NULL;
 	}
 }
@@ -175,13 +177,13 @@ lv_spng_close(lv_img_decoder_t *dec, lv_img_decoder_dsc_t *dsc)
 int
 lv_spng_init(void)
 {
-	lv_img_decoder_t *dec = lv_img_decoder_create();
+	lv_image_decoder_t *dec = lv_image_decoder_create();
 	if (dec == NULL)
 		return (-1);
 
-	lv_img_decoder_set_info_cb(dec, lv_spng_info);
-	lv_img_decoder_set_open_cb(dec, lv_spng_open);
-	lv_img_decoder_set_close_cb(dec, lv_spng_close);
+	lv_image_decoder_set_info_cb(dec, lv_spng_info);
+	lv_image_decoder_set_open_cb(dec, lv_spng_open);
+	lv_image_decoder_set_close_cb(dec, lv_spng_close);
 
 	return (0);
 }

@@ -30,6 +30,7 @@
  *      INCLUDES
  *********************/
 
+#include <string.h>
 #include <unistd.h>
 #include <poll.h>
 #include <time.h>
@@ -818,7 +819,7 @@ drm_setup_buffers(void)
 uint64_t wslv_ms(void);
 
 void
-drm_wait_vsync(lv_disp_drv_t *disp_drv)
+drm_wait_vsync(lv_display_t *disp_drv)
 {
 	LV_UNUSED(disp_drv);
 
@@ -826,7 +827,7 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 	struct pollfd pfd;
 
 	if (drm_dev.req == NULL) {
-		lv_disp_flush_ready(drm_dev.ev.ev_arg);
+		lv_display_flush_ready(drm_dev.ev.ev_arg);
 		return;
 	}
 
@@ -859,13 +860,13 @@ drm_wait_vsync(lv_disp_drv_t *disp_drv)
 static void
 drm_done_vsync(int fd, short events, void *arg)
 {
-	lv_disp_drv_t *disp_drv = arg;
+	lv_display_t *disp_drv = arg;
 
 	drmHandleEvent(drm_dev.fd, &drm_dev.drm_event_ctx);
 	drmModeAtomicFree(drm_dev.req);
 	drm_dev.req = NULL;
 
-	lv_disp_flush_ready(disp_drv);
+	lv_display_flush_ready(disp_drv);
 
 	lv_refr_now(NULL);
 	drm_dev.stat_done_vsync++;
@@ -879,11 +880,11 @@ drm_refresh(void)
 }
 
 void
-drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
+drm_flush(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *pixels)
 {
-	int bufi = (void *)color_p == drm_dev.drm_bufs[1].map;
+	int bufi = (void *)pixels == drm_dev.drm_bufs[1].map;
 	struct drm_buffer *fbuf = &drm_dev.drm_bufs[bufi];
-	lv_color_int_t *map = fbuf->map;
+	uint32_t *map = fbuf->map;
 	uint32_t w = (area->x2 - area->x1 + 1);
 	uint32_t h = (area->y2 - area->y1 + 1);
 	int x, y;
@@ -892,7 +893,7 @@ drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 	    area->x1, area->x2, area->y1, area->y2, w, h);
 
 	if (!lv_disp_flush_is_last(disp_drv)) {
-		lv_disp_flush_ready(disp_drv);
+		lv_display_flush_ready(disp_drv);
 		return;
 	}
 
@@ -901,7 +902,7 @@ drm_flush(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p)
 
 	drm_dev.cur_buf = fbuf;
 	if (drm_dev.dpms != DRM_MODE_DPMS_ON) {
-		lv_disp_flush_ready(disp_drv);
+		lv_display_flush_ready(disp_drv);
 		return;
 	}
 
@@ -935,7 +936,7 @@ drm_stats(int nil, short revents, void *null)
 }
 
 void
-drm_event_set(lv_disp_drv_t *disp_drv)
+drm_event_set(lv_display_t *disp_drv)
 {
 	event_set(&drm_dev.ev, drm_dev.fd, EV_READ, drm_done_vsync, disp_drv);
 	evtimer_set(&drm_dev.stat_ev, drm_stats, NULL);
