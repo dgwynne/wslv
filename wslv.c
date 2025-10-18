@@ -164,8 +164,6 @@ struct wslv_softc {
 	unsigned int			 sc_ws_omode;
 	int (*sc_ws_svideo)(struct wslv_softc *, int);
 
-//	lv_disp_draw_buf_t		 sc_lv_disp_buf;
-//	lv_disp_drv_t			 sc_lv_disp_drv;
 	lv_display_t			*sc_lv_display;
 
 	struct event			 sc_tick;
@@ -407,9 +405,6 @@ main(int argc, char *argv[])
 
 	event_init();
 
-//	lv_disp_draw_buf_init(&sc->sc_lv_disp_buf,
-//	    sc->sc_ws_fb, sc->sc_ws_fb2, sc->sc_ws_fblen);
-
 	sc->sc_lv_display = lv_display_create(sc->sc_ws_linebytes / LV_PX_SIZE,
 	    sc->sc_ws_vinfo.height);
 	if (sc->sc_lv_display == NULL)
@@ -430,31 +425,6 @@ main(int argc, char *argv[])
 	}
 
 	lv_display_set_user_data(sc->sc_lv_display, sc);
-
-//	lv_disp_drv_init(&sc->sc_lv_disp_drv);
-//	sc->sc_lv_disp_drv.draw_buf = &sc->sc_lv_disp_buf;
-//	sc->sc_lv_disp_drv.hor_res =
-//	    sc->sc_ws_linebytes / sizeof(lv_color_int_t);
-//	if (sc->sc_lv_disp_drv.hor_res != sc->sc_ws_vinfo.width)
-//		sc->sc_lv_disp_drv.physical_hor_res = sc->sc_ws_vinfo.width;
-//	sc->sc_lv_disp_drv.ver_res = sc->sc_ws_vinfo.height;
-//	if (sc->sc_ws_drm) {
-//		sc->sc_lv_disp_drv.flush_cb = drm_flush;
-//		sc->sc_lv_disp_drv.wait_cb = drm_wait_vsync;
-//		sc->sc_lv_disp_drv.full_refresh = 0;
-//		sc->sc_lv_disp_drv.direct_mode = 1;
-//		drm_event_set(&sc->sc_lv_disp_drv);
-//	} else {
-//		sc->sc_lv_disp_drv.flush_cb = wslv_lv_flush;
-//		sc->sc_lv_disp_drv.direct_mode = 1;
-//	}
-//	sc->sc_lv_disp_drv.user_data = sc;
-
-//	sc->sc_lv_disp = lv_disp_drv_register(&sc->sc_lv_disp_drv);
-//	if (0 && sc->sc_ws_drm) {
-//		lv_timer_del(sc->sc_lv_disp->refr_timer);
-//		sc->sc_lv_disp->refr_timer = NULL;
-//	}
 
 	fprintf(stderr,
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
