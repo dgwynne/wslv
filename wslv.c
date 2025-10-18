@@ -227,6 +227,7 @@ static void		wslv_pointer_set(struct wslv_softc *);
 
 static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
+static uint32_t		wslv_ms(void);
 static void		wslv_idle_ev(int, short, void *);
 static void		wslv_wake(struct wslv_softc *);
 
@@ -439,6 +440,7 @@ main(int argc, char *argv[])
 	    wslv_ws_rd, sc);
 	event_add(&sc->sc_ws_ev, NULL);
 
+	lv_tick_set_cb(wslv_ms);
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
 	wslv_tick(0, 0, sc);
 
@@ -1448,7 +1450,7 @@ wslv_mqtt_dead(struct mqtt_conn *mc)
 	errx(1, "%s", __func__);
 }
 
-uint64_t
+uint32_t
 wslv_ms(void)
 {
 	struct timespec ts;
