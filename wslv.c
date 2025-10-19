@@ -1346,8 +1346,8 @@ wslv_mqtt_on_message(struct mqtt_conn *mc,
 	goto free;
 
 free:
-        free(topic);
-        free(payload);
+	free(topic);
+	free(payload);
 	return;
 
 decline:
@@ -1743,7 +1743,7 @@ wslv_luaL_publish(lua_State *L)
 	    MQTT_QOS0, MQTT_NORETAIN) == -1)
 		errx(1, "mqtt publish %s", topic);
 
-        return (0);
+	return (0);
 }
 
 static void
@@ -1883,7 +1883,7 @@ wslv_luaL_tele(lua_State *L)
 
 	wslv_tele(sc, topic, topic_len, payload, payload_len);
 
-        return (0);
+	return (0);
 }
 
 static int
@@ -1891,7 +1891,7 @@ wslv_luaL_in_cmnd(lua_State *L)
 {
 	struct wslv_softc *sc = &_wslv; /* XXX */
 	lua_pushboolean(L, sc->sc_L_in_cmnd);
-        return (1);
+	return (1);
 }
 
 static int
@@ -1906,7 +1906,7 @@ wslv_luaL_brightness(lua_State *L)
 	}
 
 	switch (lua_gettop(L)) {
-        case 1:
+	case 1:
 		param = sc->sc_ws_brightness;
 		param.curval = luaL_checkinteger(L, 1);
 
@@ -1916,12 +1916,12 @@ wslv_luaL_brightness(lua_State *L)
 		}
 
 		sc->sc_ws_brightness.curval = param.curval;
-                break;
-        case 0:
-                break;
-        default:
-                return luaL_error(L, "invalid number of arguments");
-        }
+		break;
+	case 0:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
 
 	lua_pushinteger(L, sc->sc_ws_brightness.curval);
 	lua_pushinteger(L, sc->sc_ws_brightness.min);
@@ -1936,7 +1936,7 @@ static const luaL_Reg wslv_luaL[] = {
 	{ "in_cmnd",		wslv_luaL_in_cmnd },
 	{ "brightness",		wslv_luaL_brightness },
 
-        { NULL,                 NULL }
+	{ NULL,			NULL }
 };
 
 static int
