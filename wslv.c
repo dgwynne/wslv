@@ -1392,9 +1392,7 @@ wslv_mqtt_tele(struct wslv_softc *sc)
 	if (sc->sc_ws_brightness.param) {
 		rv = snprintf(payload + plen,
 		    sizeof(payload) - plen,
-		    ",\"brightness\":%d"
-		    ",\"brightness_min\":%d"
-		    ",\"brightness_max\":%d",
+		    ",\"brightness\":{\"v\":%d,\"min\":%d,\"max\":%d}",
 		    sc->sc_ws_brightness.curval,
 		    sc->sc_ws_brightness.min,
 		    sc->sc_ws_brightness.max);
