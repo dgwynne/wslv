@@ -161,6 +161,8 @@ struct wslv_softc {
 	size_t				 sc_ws_fblen;
 	struct event			 sc_ws_ev;
 
+	struct wsdisplay_param		 sc_ws_brightness;
+
 	unsigned int			 sc_ws_omode;
 	int (*sc_ws_svideo)(struct wslv_softc *, int);
 
@@ -238,6 +240,8 @@ static int		wslv_svideo(struct wslv_softc *, int);
 static int		wslv_wsfb_svideo(struct wslv_softc *, int);
 static int		wslv_drm_svideo(struct wslv_softc *, int);
 static void		wslv_refresh(struct wslv_softc *);
+
+static void		wslv_probe_brightness(struct wslv_softc *);
 
 static void		wslv_mqtt_init(struct wslv_softc *);
 static void		wslv_mqtt_connect(struct wslv_softc *);
@@ -431,6 +435,8 @@ main(int argc, char *argv[])
 	    "%s, %u * %u, %d bit mmap %p+%zu\n",
 	    sc->sc_name, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height,
 	    sc->sc_ws_vinfo.depth, sc->sc_ws_fb, sc->sc_ws_fblen);
+
+	wslv_probe_brightness(sc);
 
 	wslv_pointer_set(sc);
 
@@ -829,6 +835,7 @@ wslv_open(struct wslv_softc *sc, const char *devname, const char **errstr)
 	}
 	switch (gtype) {
 	case WSDISPLAY_TYPE_INTELDRM:
+		sc->sc_ws_fd = fd;
 		sc->sc_ws_drm = 1;
 		return (0);
 	}
@@ -921,6 +928,19 @@ wslv_lv_flush(lv_display_t *display, const lv_area_t *area,
 	}
 
 	lv_display_flush_ready(display);
+}
+
+static void
+wslv_probe_brightness(struct wslv_softc *sc)
+{
+	struct wsdisplay_param param = {
+		.param = WSDISPLAYIO_PARAM_BRIGHTNESS
+	};
+
+	if (ioctl(sc->sc_ws_fd, WSDISPLAYIO_GETPARAM, &param) == -1)
+		return;
+
+	sc->sc_ws_brightness = param;
 }
 
 /* */
@@ -1259,9 +1279,12 @@ struct wslv_mqtt_cmnd {
 
 static void	wslv_mqtt_screen(struct wslv_softc *, const char *,
 		    const char *, size_t);
+static void	wslv_mqtt_brightness(struct wslv_softc *, const char *,
+		    const char *, size_t);
 
 static const struct wslv_mqtt_cmnd wslv_mqtt_cmnds[] = {
 	{ "screen",		wslv_mqtt_screen },
+	{ "brightness",		wslv_mqtt_brightness },
 };
 
 static const struct wslv_mqtt_cmnd *
@@ -1342,30 +1365,54 @@ wslv_mqtt_tele(struct wslv_softc *sc)
 {
 	struct mqtt_conn *mc = sc->sc_mqtt_conn;
 	char topic[128];
-	char payload[128];
-	size_t topic_len, payload_len;
+	char payload[256];
+	size_t tlen, plen;
 	int rv;
+	size_t off;
 
 	rv = snprintf(topic, sizeof(topic), "tele/%s/STATUS",
 	    sc->sc_mqtt_device);
 	if (rv == -1)
 		errx(1, "mqtt tele topic");
-	topic_len = rv;
-	if (topic_len >= sizeof(topic))
+	tlen = rv;
+	if (tlen >= sizeof(topic))
 		errx(1, "mqtt tele topic len");
 
 	rv = snprintf(payload, sizeof(payload),
-	    "{\"idle\":\"%s\",\"screen\":\"%s\",\"state\":\"%s\"}",
+	    "{\"idle\":\"%s\",\"screen\":\"%s\",\"state\":\"%s\"",
 	    sc->sc_idle > WSLV_IDLE_STATE_AWAKE ? "ON" : "OFF",
 	    sc->sc_idle < WSLV_IDLE_STATE_ASLEEP ? "ON" : "OFF",
 	    wslv_idle_state_names[sc->sc_idle]);
 	if (rv == -1)
 		errx(1, "mqtt tele payload");
-	payload_len = rv;
-	if (payload_len >= sizeof(payload))
+	plen = rv;
+	if (plen >= sizeof(payload))
 		errx(1, "mqtt tele payload len");
 
-	if (mqtt_publish(mc, topic, topic_len, payload, payload_len,
+	if (sc->sc_ws_brightness.param) {
+		rv = snprintf(payload + plen,
+		    sizeof(payload) - plen,
+		    ",\"brightness\":%d"
+		    ",\"brightness_min\":%d"
+		    ",\"brightness_max\":%d",
+		    sc->sc_ws_brightness.curval,
+		    sc->sc_ws_brightness.min,
+		    sc->sc_ws_brightness.max);
+		if (rv == -1)
+			errx(1, "mqtt tele payload");
+		plen += rv;
+		if (plen >= sizeof(payload))
+			errx(1, "mqtt tele payload len");
+	}
+
+	rv = snprintf(payload + plen, sizeof(payload) - plen, "}");
+	if (rv == -1)
+		errx(1, "mqtt tele payload");
+	plen += rv;
+	if (plen >= sizeof(payload))
+		errx(1, "mqtt tele payload len");
+
+	if (mqtt_publish(mc, topic, tlen, payload, plen,
 	    MQTT_QOS0, MQTT_NORETAIN) == -1)
 		errx(1, "mqtt publish %s", topic);
 }
@@ -1441,6 +1488,37 @@ wslv_mqtt_screen(struct wslv_softc *sc, const char *name,
 		}
 	}
 
+	wslv_mqtt_tele(sc);
+}
+
+static void
+wslv_mqtt_brightness(struct wslv_softc *sc, const char *name,
+    const char *payload, size_t payload_len)
+{
+	struct wsdisplay_param param;
+	int val;
+	const char *errstr;
+
+	if (sc->sc_ws_brightness.param == 0)
+		return;
+
+	val = strtonum(payload,
+	    sc->sc_ws_brightness.min, sc->sc_ws_brightness.max,
+	    &errstr);
+	if (errstr != NULL)
+		goto tele;
+
+	param = sc->sc_ws_brightness;
+	param.curval = val;
+
+	if (ioctl(sc->sc_ws_fd, WSDISPLAYIO_SETPARAM, &param) == -1) {
+		warn("mqtt set brightness");
+		goto tele;
+	}
+
+	sc->sc_ws_brightness.curval = val;
+
+tele:
 	wslv_mqtt_tele(sc);
 }
 
