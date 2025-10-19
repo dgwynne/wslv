@@ -1894,11 +1894,47 @@ wslv_luaL_in_cmnd(lua_State *L)
         return (1);
 }
 
+static int
+wslv_luaL_brightness(lua_State *L)
+{
+	struct wslv_softc *sc = &_wslv; /* XXX */
+	struct wsdisplay_param param;
+
+	if (sc->sc_ws_brightness.param == 0) {
+		lua_pushnil(L);
+		return (1);
+	}
+
+	switch (lua_gettop(L)) {
+        case 1:
+		param = sc->sc_ws_brightness;
+		param.curval = luaL_checkinteger(L, 1);
+
+		if (ioctl(sc->sc_ws_fd, WSDISPLAYIO_SETPARAM, &param) == -1) {
+			warn("lua set brightness");
+			break;
+		}
+
+		sc->sc_ws_brightness.curval = param.curval;
+                break;
+        case 0:
+                break;
+        default:
+                return luaL_error(L, "invalid number of arguments");
+        }
+
+	lua_pushinteger(L, sc->sc_ws_brightness.curval);
+	lua_pushinteger(L, sc->sc_ws_brightness.min);
+	lua_pushinteger(L, sc->sc_ws_brightness.max);
+	return (3);
+}
+
 static const luaL_Reg wslv_luaL[] = {
 	{ "publish",		wslv_luaL_publish },
 	{ "subscribe",		wslv_luaL_subscribe },
 	{ "tele",		wslv_luaL_tele },
 	{ "in_cmnd",		wslv_luaL_in_cmnd },
+	{ "brightness",		wslv_luaL_brightness },
 
         { NULL,                 NULL }
 };
