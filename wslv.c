@@ -173,7 +173,7 @@ struct wslv_softc {
 	struct timeval			 sc_idle_time;
 	struct event			 sc_idle_ev;
 	unsigned int			 sc_idle;
-	unsigned int			 sc_idle_input;
+	lv_obj_t			*sc_idle_obj;
 
 	struct wslv_pointer_list	 sc_pointer_list;
 
@@ -201,6 +201,7 @@ struct wslv_softc {
 	lua_State			*sc_L;
 	const char			*sc_L_script;
 	int				 sc_L_reload;
+	lv_obj_t			*sc_L_reload_btn;
 	int				 sc_L_in_cmnd;
 
 	struct wslv_lua_mqtt_subs	 sc_L_subs;
@@ -231,6 +232,8 @@ static void		wslv_ws_rd(int, short, void *);
 static void		wslv_tick(int, short, void *);
 static uint32_t		wslv_ms(void);
 static void		wslv_idle_ev(int, short, void *);
+static void		wslv_idle_pressed_cb(lv_event_t *);
+static void		wslv_idle_released_cb(lv_event_t *);
 static void		wslv_wake(struct wslv_softc *);
 
 static void		wslv_lv_flush(lv_display_t *, const lv_area_t *,
@@ -287,6 +290,7 @@ main(int argc, char *argv[])
 	size_t x, y;
 	uint32_t *word;
 	int ch;
+	lv_obj_t *obj;
 
 	TAILQ_INIT(&sc->sc_pointer_list);
 
@@ -473,7 +477,34 @@ main(int argc, char *argv[])
 		lv_obj_align(btn, LV_ALIGN_BOTTOM_RIGHT, -16, -16);
 		lv_obj_add_event_cb(btn, wslv_lua_reload_cb,
 		    LV_EVENT_CLICKED, sc);
+
+		sc->sc_L_reload_btn = btn;
 	}
+
+	/*
+	 * create a big black object to cover the screen when idle.
+	 * the object intercepts clicks as a way to implement tap
+	 * to wake without accidentally clicking anything on what
+	 * appears to be a blank screen.
+	 */
+	obj = lv_obj_create(lv_layer_sys());
+	if (obj == NULL)
+		errx(1, "unable to create idle obj");
+	lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+
+	lv_obj_remove_style_all(obj);
+	lv_obj_set_style_bg_color(obj, lv_color_black(), LV_PART_MAIN);
+	lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+
+	lv_obj_set_pos(obj, 0, 0);
+	lv_obj_set_size(obj, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height);
+	lv_obj_refr_size(obj);
+
+	lv_obj_add_flag(obj, LV_OBJ_FLAG_CLICKABLE);
+	lv_obj_add_event_cb(obj, wslv_idle_pressed_cb, LV_EVENT_PRESSED, sc);
+	lv_obj_add_event_cb(obj, wslv_idle_released_cb, LV_EVENT_RELEASED, sc);
+
+	sc->sc_idle_obj = obj;
 
 	wslv_lua_init(sc);
 	//wsluav(sc, lv_scr_act(), lfile);
@@ -543,7 +574,6 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 	struct wslv_pointer_event *pe;
 	lv_display_t *disp = lv_indev_get_display(wp->wp_lv_indev);
 	int v = wsevt->value;
-	unsigned int idle;
 	int d;
 
 	if (0) {
@@ -600,25 +630,6 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		wp->wp_state.p_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
-		idle = sc->sc_idle;
-		sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
-		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
-
-		if (idle != WSLV_IDLE_STATE_AWAKE)
-			wslv_mqtt_tele(sc);
-
-		if (sc->sc_idle_input) {
-			/* wake the display up as soon as anything happens */
-			wslv_svideo(sc, 1);
-
-			/* only wake up input after the touch is released */
-			if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL ||
-			    wp->wp_state.p_pressed == 0)
-				wslv_wake(sc);
-
-			return;
-		}
-
 		wp->wp_state_synced = wp->wp_state;
 
 		pe = malloc(sizeof(*pe));
@@ -676,17 +687,6 @@ wslv_pointer_read(lv_indev_t *indev, lv_indev_data_t *data)
 	data->continue_reading = !TAILQ_EMPTY(&wp->wp_events);
 
 	free(pe);
-}
-
-static void
-wslv_pointer_idle(lv_indev_t *indev, lv_indev_data_t *data)
-{
-	struct wslv_pointer *wp = lv_indev_get_user_data(indev);
-
-	data->point.x = wp->wp_state_synced.p_x;
-	data->point.y = wp->wp_state_synced.p_y;
-	data->state = LV_INDEV_STATE_RELEASED;
-	data->continue_reading = 0;
 }
 
 static void
@@ -773,13 +773,22 @@ wslv_tick(int nil, short events, void *arg)
 static void
 wslv_sleep(struct wslv_softc *sc)
 {
-	struct wslv_pointer *wp;
-
-	sc->sc_idle_input = 1;
-	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
-		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_idle);
+	lv_obj_t *obj = sc->sc_idle_obj;
 
 	wslv_svideo(sc, 0);
+
+	lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void
+wslv_wake(struct wslv_softc *sc)
+{
+	lv_obj_t *obj = sc->sc_idle_obj;
+
+	lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
+
+	wslv_svideo(sc, 1);
 }
 
 static void
@@ -802,15 +811,32 @@ wslv_idle_ev(int nil, short events, void *arg)
 }
 
 static void
-wslv_wake(struct wslv_softc *sc)
+wslv_idle_pressed_cb(lv_event_t *e)
 {
-	struct wslv_pointer *wp;
+	struct wslv_softc *sc = lv_event_get_user_data(e);
+	lv_obj_t *obj = sc->sc_idle_obj;
+	int idle;
 
-	/* the display has already been woken up */
+	lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_MAIN);
 
-	TAILQ_FOREACH(wp, &sc->sc_pointer_list, wp_entry)
-		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_read);
-	sc->sc_idle_input = 0;
+	idle = sc->sc_idle;
+	sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
+	evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+
+	if (idle != WSLV_IDLE_STATE_AWAKE)
+		wslv_mqtt_tele(sc);
+
+	wslv_svideo(sc, 1);
+}
+
+static void
+wslv_idle_released_cb(lv_event_t *e)
+{
+	struct wslv_softc *sc = lv_event_get_user_data(e);
+	lv_obj_t *obj = sc->sc_idle_obj;
+
+	lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+	lv_obj_set_style_bg_opa(obj, LV_OPA_COVER, LV_PART_MAIN);
 }
 
 static int
@@ -1916,6 +1942,7 @@ wslv_luaL_brightness(lua_State *L)
 		}
 
 		sc->sc_ws_brightness.curval = param.curval;
+		wslv_mqtt_tele(sc);
 		break;
 	case 0:
 		break;
