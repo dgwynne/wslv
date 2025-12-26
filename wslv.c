@@ -574,6 +574,7 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 	struct wslv_pointer_event *pe;
 	lv_display_t *disp = lv_indev_get_display(wp->wp_lv_indev);
 	int v = wsevt->value;
+	int idle;
 	int d;
 
 	if (0) {
@@ -630,6 +631,13 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 		wp->wp_state.p_pressed = 1;
 		break;
 	case WSCONS_EVENT_SYNC:
+		idle = sc->sc_idle;
+		sc->sc_idle = WSLV_IDLE_STATE_AWAKE;
+		evtimer_add(&sc->sc_idle_ev, &sc->sc_idle_time);
+
+		if (idle != WSLV_IDLE_STATE_AWAKE)
+			wslv_mqtt_tele(sc);
+
 		wp->wp_state_synced = wp->wp_state;
 
 		pe = malloc(sizeof(*pe));
