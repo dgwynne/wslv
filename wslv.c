@@ -1552,12 +1552,15 @@ struct wslv_mqtt_cmnd {
 	    const char *, size_t);
 };
 
+static void	wslv_mqtt_reload(struct wslv_softc *, const char *,
+		    const char *, size_t);
 static void	wslv_mqtt_screen(struct wslv_softc *, const char *,
 		    const char *, size_t);
 static void	wslv_mqtt_brightness(struct wslv_softc *, const char *,
 		    const char *, size_t);
 
 static const struct wslv_mqtt_cmnd wslv_mqtt_cmnds[] = {
+	{ "reload",		wslv_mqtt_reload },
 	{ "screen",		wslv_mqtt_screen },
 	{ "brightness",		wslv_mqtt_brightness },
 };
@@ -1735,6 +1738,14 @@ wslv_mqtt_tele_period(int nope, short events, void *arg)
 	evtimer_add(&sc->sc_mqtt_tele_period, &rate);
 
 	wslv_mqtt_tele(sc);
+}
+
+static void
+wslv_mqtt_reload(struct wslv_softc *sc, const char *name,
+    const char *payload, size_t payload_len)
+{
+	if (sc->sc_L_reload)
+		wslv_lua_reload(sc);
 }
 
 static void
