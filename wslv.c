@@ -201,6 +201,7 @@ struct wslv_softc {
 	struct event			 sc_mqtt_ev_to;
 
 	struct event			 sc_mqtt_tele_period;
+	unsigned int			 sc_mqtt_connects;
 
 	struct event			 sc_clocktick;
 
@@ -1495,6 +1496,8 @@ wslv_mqtt_on_connect(struct mqtt_conn *mc)
 	char filter[128];
 	int rv;
 
+	sc->sc_mqtt_connects++;
+
 	if (mqtt_publish(mc,
 	    sc->sc_mqtt_will_topic, sc->sc_mqtt_will_topic_len,
 	    online, sizeof(online) - 1, MQTT_QOS0, MQTT_RETAIN) == -1)
@@ -1670,6 +1673,12 @@ wslv_mqtt_tele(struct wslv_softc *sc)
 		if (plen >= sizeof(payload))
 			errx(1, "mqtt tele payload len");
 	}
+
+	rv = snprintf(payload + plen, sizeof(payload) - plen,
+	    ",\"connects\":%u", sc->sc_mqtt_connects);
+	if (rv == -1)
+		errx(1, "mqtt tele payload");
+	plen += rv;
 
 	rv = snprintf(payload + plen, sizeof(payload) - plen, "}");
 	if (rv == -1)
