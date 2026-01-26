@@ -1046,7 +1046,7 @@ static void	wslv_mqtt_on_suback(struct mqtt_conn *, void *,
 static void	wslv_mqtt_on_unsuback(struct mqtt_conn *, void *);
 static void	wslv_mqtt_on_message(struct mqtt_conn *,
 		    char *, size_t, char *, size_t, enum mqtt_qos);
-static void	wslv_mqtt_dead(struct mqtt_conn *);
+static void	wslv_mqtt_dead(struct mqtt_conn *, const char *);
 
 static void	wslv_mqtt_want_timeout(struct mqtt_conn *,
 		     const struct timespec *);
@@ -1386,10 +1386,11 @@ wslv_mqtt_reconnect_run(struct wslv_softc *sc)
 	/* asr_run frees sc->sc_mqtt_asr_query for us */
 
 	if (ar.ar_gai_errno) {
-		errx(1, "mqtt broker %s port %s: %s",
+		warnx("mqtt broker %s port %s: %s",
 		    sc->sc_mqtt_host, sc->sc_mqtt_serv,
 		    gai_strerror(ar.ar_gai_errno));
-		freeaddrinfo(ar.ar_addrinfo);
+		if (ar.ar_addrinfo != NULL)
+			freeaddrinfo(ar.ar_addrinfo);
 		wslv_mqtt_reconnect(sc);
 		return;
 	}
@@ -1819,9 +1820,13 @@ tele:
 }
 
 static void
-wslv_mqtt_dead(struct mqtt_conn *mc)
+wslv_mqtt_dead(struct mqtt_conn *mc, const char *reason)
 {
-	errx(1, "%s", __func__);
+	struct wslv_softc *sc = mqtt_cookie(mc);
+
+	warnx("mqtt connection died: %s", reason);
+
+	wslv_mqtt_disconnect(sc);
 }
 
 uint32_t
