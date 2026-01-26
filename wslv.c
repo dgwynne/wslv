@@ -203,6 +203,8 @@ struct wslv_softc {
 	struct event			 sc_mqtt_tele_period;
 	unsigned int			 sc_mqtt_connects;
 
+	struct event			 sc_sighup;
+
 	struct event			 sc_clocktick;
 
 	lua_State			*sc_L;
@@ -281,6 +283,8 @@ static void		wslv_lua_cmnd(struct wslv_softc *,
 			    const char *, size_t, const char *, size_t);
 static void		wslv_lua_clocktick(int, short, void *);
 static void		wslv_lua_on_connect(struct wslv_softc *);
+
+static void		wslv_sighup(int, short, void *);
 
 static void __dead
 usage(void)
@@ -553,6 +557,9 @@ main(int argc, char *argv[])
 	//lv_demo_benchmark();
 
 	evtimer_set(&sc->sc_clocktick, wslv_lua_clocktick, sc);
+	signal_set(&sc->sc_sighup, SIGHUP, wslv_sighup, sc);
+	signal_add(&sc->sc_sighup, NULL);
+
 	wslv_lua_clocktick(0, 0, sc);
 
 	event_dispatch();
@@ -1952,6 +1959,14 @@ static void
 wslv_lua_reload_cb(lv_event_t *e)
 {
 	struct wslv_softc *sc = lv_event_get_user_data(e);
+
+	wslv_lua_reload(sc);
+}
+
+static void
+wslv_sighup(int nil, short revents, void *arg)
+{
+	struct wslv_softc *sc = arg;
 
 	wslv_lua_reload(sc);
 }
