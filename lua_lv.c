@@ -250,6 +250,12 @@ lua_lv_checkbox_create(lua_State *L)
 }
 
 static int
+lua_lv_dropdown_create(lua_State *L)
+{
+	return (lua_lv_obj_create_udata(L, lv_dropdown_create));
+}
+
+static int
 lua_lv_img_create(lua_State *L)
 {
 	return (lua_lv_obj_create_udata(L, lv_img_create));
@@ -2326,6 +2332,320 @@ static const luaL_Reg lua_lv_checkbox_methods[] = {
 };
 
 /*
+ * lv_dropdown
+ */
+
+static int
+lua_lv_dropdown_text(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	const char *str;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		str = luaL_checkstring(L, 2);
+		lv_dropdown_set_text(obj, str);
+		break;
+	case 1:
+		str = lv_dropdown_get_text(obj);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushstring(L, str);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_set_options(lua_State *L, lv_obj_t *obj)
+{
+	const char *str;
+
+	if (lua_istable(L, 2)) {
+		luaL_Buffer B;
+		size_t len = lua_rawlen(L, 2);
+		size_t i;
+
+		luaL_buffinit(L, &B);
+		for (i = 1; i <= len; i++) {
+			lua_rawgeti(L, 2, i);
+			luaL_addvalue(&B);
+			if (i < len)
+				luaL_addchar(&B, '\n');
+		}
+		luaL_pushresult(&B);
+
+		str = lua_tostring(L, -1);
+		lv_dropdown_set_options(obj, str);
+		lua_pop(L, 1);
+	} else {
+		str = lua_tostring(L, 2);
+		lv_dropdown_set_options(obj, str);
+	}
+
+	return (0);
+}
+
+static int
+lua_lv_dropdown_get_options(lua_State *L, lv_obj_t *obj)
+{
+	const char *options;
+	char *sep;
+	int i = 1;
+
+	options = lv_dropdown_get_options(obj);
+	if (options == NULL)
+		return (0);
+
+	lua_createtable(L, lv_dropdown_get_option_count(obj), 0);
+	while ((sep = strchr(options, '\n')) != NULL) {
+		lua_pushlstring(L, options, sep - options);
+		lua_rawseti(L, -2, i++);
+		options = sep + 1;
+	}
+	lua_pushstring(L, options);
+	lua_rawseti(L, -2, i);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_options(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+
+	switch (lua_gettop(L)) {
+	case 2:
+		return (lua_lv_dropdown_set_options(L, obj));
+	case 1:
+		return (lua_lv_dropdown_get_options(L, obj));
+	default:
+		break;
+	}
+
+	return luaL_error(L, "invalid number of arguments");
+}
+
+static int
+lua_lv_dropdown_options_str(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	const char *options;
+
+	if (lua_gettop(L) != 1)
+		return luaL_error(L, "invalid number of arguments");
+
+	options = lv_dropdown_get_options(obj);
+
+	lua_pushstring(L, options);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_add_option(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	const char *str;
+	uint32_t pos = LV_DROPDOWN_POS_LAST;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		pos = luaL_checkinteger(L, 3);
+		luaL_argcheck(L, pos > 0, 2,
+		    "position must be >= 1");
+		pos--;
+		/* FALLTHROUGH */
+	case 2:
+		str = luaL_checkstring(L, 2);
+		lv_dropdown_add_option(obj, str, pos);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	return (0);
+}
+
+static int
+lua_lv_dropdown_clear_options(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+
+	if (lua_gettop(L) != 1)
+		return luaL_error(L, "invalid number of arguments");
+
+	lv_dropdown_clear_options(obj);
+
+	return (0);
+}
+
+static int
+lua_lv_dropdown_option_count(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	uint32_t count;
+
+	if (lua_gettop(L) != 1)
+		return luaL_error(L, "invalid number of arguments");
+
+	count = lv_dropdown_get_option_count(obj);
+	lua_pushinteger(L, count);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_option_index(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	const char *option = luaL_checkstring(L, 2);
+	int32_t index;
+
+	if (lua_gettop(L) != 2)
+		return luaL_error(L, "invalid number of arguments");
+
+	index = lv_dropdown_get_option_index(obj, option);
+	if (index == -1)
+		return (0);
+
+	lua_pushinteger(L, index + 1);
+	return (1);
+}
+
+static int
+lua_lv_dropdown_selected(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	uint32_t sel_opt;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		sel_opt = luaL_checkinteger(L, 2);
+		luaL_argcheck(L, sel_opt > 0, 2,
+		    "selected option must be >= 1");
+		lv_dropdown_set_selected(obj, sel_opt - 1);
+		break;
+	case 1:
+		sel_opt = lv_dropdown_get_selected(obj);
+		sel_opt += 1;
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushinteger(L, sel_opt);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_dir(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	lv_dir_t dir;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		dir = luaL_checkinteger(L, 2);
+		switch (dir) {
+		case LV_DIR_LEFT:
+		case LV_DIR_RIGHT:
+		case LV_DIR_TOP:
+		case LV_DIR_BOTTOM:
+			break;
+		default:
+			luaL_argcheck(L, 0, 2, "invalid direction");
+			return (0);
+		}
+		lv_dropdown_set_dir(obj, dir);
+		break;
+	case 1:
+		dir = lv_dropdown_get_dir(obj);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_pushinteger(L, dir);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_selected_str(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	char buf[128]; /* how long is long enough? */
+	uint32_t buflen = sizeof(buf);
+
+	if (lua_gettop(L) != 1)
+		return luaL_error(L, "invalid number of arguments");
+
+	lv_dropdown_get_selected_str(obj, buf, buflen);
+
+	lua_pushstring(L, buf);
+
+	return (1);
+}
+
+static int
+lua_lv_dropdown_symbol(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	const void *symbol = NULL;
+
+	switch (lua_gettop(L)) {
+	case 2:
+		luaL_argcheck(L, lua_isnil(L, 2), 2, "unsupported symbol");
+		lv_dropdown_set_symbol(obj, symbol);
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	return (0);
+}
+
+static int
+lua_lv_dropdown_list(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj_class(L, 1, &lv_dropdown_class);
+	lv_obj_t *nobj;
+	struct lua_lv_obj *lobj;
+
+	nobj = lv_dropdown_get_list(obj);
+	if (nobj == NULL)
+		return luaL_error(L, "lv_dropdown_get_list failed");
+
+	lobj = lua_lv_obj_getp(L, nobj);
+
+	LVDPRINTF("dropdown:%p, list:%p, lobj:%p", obj, nobj, lobj);
+
+	return (1);
+}
+
+static const luaL_Reg lua_lv_dropdown_methods[] = {
+	{ "text",		lua_lv_dropdown_text },
+	{ "options",		lua_lv_dropdown_options },
+	{ "options_str",	lua_lv_dropdown_options_str },
+	{ "add_option",		lua_lv_dropdown_add_option },
+	{ "clear_options",	lua_lv_dropdown_clear_options },
+	{ "option_count",	lua_lv_dropdown_option_count },
+	{ "option_index",	lua_lv_dropdown_option_index },
+	{ "dir",		lua_lv_dropdown_dir },
+	{ "selected",		lua_lv_dropdown_selected },
+	{ "selected_str",	lua_lv_dropdown_selected_str },
+	{ "symbol",		lua_lv_dropdown_symbol },
+
+	{ "list",		lua_lv_dropdown_list },
+
+	{ NULL,			NULL }
+};
+
+/*
  * lv_img
  */
 
@@ -3005,6 +3325,7 @@ static const struct lua_lv_obj_class lua_lv_obj_classes[] = {
 	{ &lv_button_class,	lua_lv_btn_methods },
 	{ &lv_buttonmatrix_class,	lua_lv_btnmatrix_methods },
 	{ &lv_checkbox_class,	lua_lv_checkbox_methods },
+	{ &lv_dropdown_class,	lua_lv_dropdown_methods },
 	{ &lv_image_class,	lua_lv_img_methods },
 	{ &lv_label_class,	lua_lv_label_methods },
 	{ &lv_led_class,	lua_lv_led_methods },
@@ -3330,6 +3651,7 @@ static const luaL_Reg lua_lv[] = {
 	{ "button",		lua_lv_btn_create },
 	{ "btnmatrix",		lua_lv_btnmatrix_create },
 	{ "checkbox",		lua_lv_checkbox_create },
+	{ "dropdown",		lua_lv_dropdown_create },
 	{ "img",		lua_lv_img_create },
 	{ "image",		lua_lv_img_create },
 	{ "label",		lua_lv_label_create },
