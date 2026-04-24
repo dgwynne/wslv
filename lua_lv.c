@@ -30,7 +30,7 @@
 #define nitems(_a) (sizeof((_a)) / sizeof((_a)[0]))
 #endif
 
-#define LV_LUA_DEBUG
+//#define LV_LUA_DEBUG
 
 #ifdef LV_LUA_DEBUG
 #include <stdio.h>
@@ -1179,6 +1179,11 @@ lua_lv_color_arg(lua_State *L, int idx)
 		return lv_palette_main(palette);
 
 	str = lua_tostring(L, idx);
+	if (strcmp(str, "white") == 0)
+		return lv_color_white();
+	if (strcmp(str, "black") == 0)
+		return lv_color_black();
+
 	luaL_argcheck(L, str[0] == '#', idx, "hex strings start with #");
 
 	switch (strlen(str)) {
@@ -1470,11 +1475,14 @@ lua_builtin_lv_fonts_init(lua_State *L)
 struct lua_lv_style {
 	const char		*name;
 	lv_style_prop_t		 prop;
-	lv_style_value_t (*check)(lua_State *, int);
+	struct {
+		lv_style_value_t (*check)(lua_State *, int);
+		int (*get)(lua_State *, const lv_style_value_t *);
+	}			 fn;
 };
 
 static lv_style_value_t
-lua_lv_style_num(lua_State *L, int idx)
+lua_lv_style_num_check(lua_State *L, int idx)
 {
 	lv_style_value_t v = {
 		.num = luaL_checkinteger(L, idx)
@@ -1484,7 +1492,7 @@ lua_lv_style_num(lua_State *L, int idx)
 }
 
 static lv_style_value_t
-lua_lv_style_bool(lua_State *L, int idx)
+lua_lv_style_bool_check(lua_State *L, int idx)
 {
 	lv_style_value_t v = {
 		.num = lua_toboolean(L, idx)
@@ -1494,7 +1502,7 @@ lua_lv_style_bool(lua_State *L, int idx)
 }
 
 static lv_style_value_t
-lua_lv_style_color(lua_State *L, int idx)
+lua_lv_style_color_check(lua_State *L, int idx)
 {
 	lv_style_value_t v = {
 		.color = lua_lv_color_arg(L, idx)
@@ -1503,8 +1511,15 @@ lua_lv_style_color(lua_State *L, int idx)
 	return (v);
 }
 
+static int
+lua_lv_style_color_get(lua_State *L, const lv_style_value_t *v)
+{
+	lua_pushinteger(L, lv_color_to_int(v->color));
+	return (1);
+}
+
 static lv_style_value_t
-lua_lv_style_font(lua_State *L, int idx)
+lua_lv_style_font_check(lua_State *L, int idx)
 {
 	lv_style_value_t v;
 	lv_font_t *f;
@@ -1527,6 +1542,12 @@ lua_lv_style_font(lua_State *L, int idx)
 	return (v);
 }
 
+#define lua_lv_style_num { lua_lv_style_num_check }
+#define lua_lv_style_bool { lua_lv_style_bool_check }
+#define lua_lv_style_color \
+    { lua_lv_style_color_check, lua_lv_style_color_get, }
+#define lua_lv_style_font { lua_lv_style_font_check }
+
 static const struct lua_lv_style lua_lv_styles[] = {
 	{ "width",		LV_STYLE_WIDTH,		lua_lv_style_num },
 	{ "w",			LV_STYLE_WIDTH,		lua_lv_style_num },
@@ -1546,6 +1567,10 @@ static const struct lua_lv_style lua_lv_styles[] = {
 	{ "layout",		LV_STYLE_LAYOUT,	lua_lv_style_num },
 	{ "radius",		LV_STYLE_RADIUS,	lua_lv_style_num },
 
+	{ "margin_top",		LV_STYLE_MARGIN_TOP,	lua_lv_style_num },
+	{ "margin_bottom",	LV_STYLE_MARGIN_BOTTOM,	lua_lv_style_num },
+	{ "margin_left",	LV_STYLE_MARGIN_LEFT,	lua_lv_style_num },
+	{ "margin_right",	LV_STYLE_MARGIN_RIGHT,	lua_lv_style_num },
 	{ "pad_top",		LV_STYLE_PAD_TOP,	lua_lv_style_num },
 	{ "pad_bottom",		LV_STYLE_PAD_BOTTOM,	lua_lv_style_num },
 	{ "pad_left",		LV_STYLE_PAD_LEFT,	lua_lv_style_num },
@@ -1618,6 +1643,7 @@ static const struct lua_lv_style lua_lv_styles[] = {
 							lua_lv_style_num },
 	{ "text_line_decor",	LV_STYLE_TEXT_DECOR,	lua_lv_style_num },
 	{ "text_line_align",	LV_STYLE_TEXT_ALIGN,	lua_lv_style_num },
+	{ "text_align",		LV_STYLE_TEXT_ALIGN,	lua_lv_style_num },
 
 	{ "opa",		LV_STYLE_OPA,		lua_lv_style_num },
 	{ "opa_layered",	LV_STYLE_OPA_LAYERED,	lua_lv_style_num },
@@ -1641,27 +1667,27 @@ static const struct lua_lv_style lua_lv_styles[] = {
 
 static struct lua_lv_style lua_lv_style_flex_flow = {
 	.name = "flex_flow",
-	.check = lua_lv_style_num,
+	.fn = lua_lv_style_num,
 };
 
 static struct lua_lv_style lua_lv_style_flex_main_place = {
 	.name = "flex_main_place",
-	.check = lua_lv_style_num,
+	.fn = lua_lv_style_num,
 };
 
 static struct lua_lv_style lua_lv_style_flex_cross_place = {
 	.name = "flex_cross_place",
-	.check = lua_lv_style_num,
+	.fn = lua_lv_style_num,
 };
 
 static struct lua_lv_style lua_lv_style_flex_track_place = {
 	.name = "flex_track_place",
-	.check = lua_lv_style_num,
+	.fn = lua_lv_style_num,
 };
 
 static struct lua_lv_style lua_lv_style_flex_grow = {
 	.name = "flex_grow",
-	.check = lua_lv_style_num,
+	.fn = lua_lv_style_num,
 };
 
 static void
@@ -1786,7 +1812,7 @@ lua_lv_style_set_table(lua_State *L, lv_style_t *style, int idx)
 			    lua_tostring(L, -2));
 		}
 
-		v = s->check(L, lua_gettop(L) - 1);
+		v = s->fn.check(L, lua_gettop(L) - 1);
 		lv_style_set_prop(style, s->prop, v);
 
 		lua_pop(L, 2); /* pop value + s udata, keep key */
@@ -1819,7 +1845,7 @@ lua_lv_style_set(lua_State *L)
 	s = lua_touserdata(L, -1);
 	luaL_argcheck(L, s != NULL, 2, "unknown style property");
 
-	v = s->check(L, 3);
+	v = s->fn.check(L, 3);
 
 	lv_style_set_prop(style, s->prop, v);
 
@@ -1878,11 +1904,43 @@ lua_lv_obj_set_style(lua_State *L)
 	s = lua_touserdata(L, -1);
 	luaL_argcheck(L, s != NULL, 2, "unknown style property");
 
-	v = s->check(L, 3);
+	v = s->fn.check(L, 3);
 
 	lv_obj_set_local_style_prop(obj, s->prop, v, selector);
 
 	return (0);
+}
+
+static int
+lua_lv_obj_get_style(lua_State *L)
+{
+	lv_obj_t *obj = lua_lv_check_obj(L, 1);
+	const struct lua_lv_style *s;
+	lv_style_value_t v;
+	int selector = LV_PART_MAIN;
+
+	switch (lua_gettop(L)) {
+	case 3:
+		selector = luaL_checkinteger(L, 4);
+		/* FALLTHROUGH */
+	case 2:
+		break;
+	default:
+		return luaL_error(L, "invalid number of arguments");
+	}
+
+	lua_rawgetp(L, LUA_REGISTRYINDEX, lua_lv_styles);
+	lua_pushvalue(L, 2);
+	lua_rawget(L, -2);
+
+	s = lua_touserdata(L, -1);
+	luaL_argcheck(L, s != NULL, 2, "unknown style property");
+	luaL_argcheck(L, s->fn.get != NULL, 2,
+	    "missing style property conversion");
+
+	v = lv_obj_get_style_prop(obj, selector, s->prop);
+
+	return s->fn.get(L, &v);
 }
 
 static int
@@ -1955,6 +2013,7 @@ static const luaL_Reg lua_lv_obj_methods[] = {
 
 	{ "set_style",		lua_lv_obj_set_style },
 	{ "add_style",		lua_lv_obj_add_style },
+	{ "get_style",		lua_lv_obj_get_style },
 
 	{ NULL,			NULL }
 };
@@ -3145,6 +3204,23 @@ static const struct lua_lv_constant lua_lv_grid_align_t[] = {
 	{ "SPACE_BETWEEN",	LV_GRID_ALIGN_SPACE_BETWEEN },
 };
 
+static const struct lua_lv_constant lua_lv_text_align_t[] = {
+	{ "AUTO",		LV_TEXT_ALIGN_AUTO },
+	{ "LEFT",		LV_TEXT_ALIGN_LEFT },
+	{ "CENTER",		LV_TEXT_ALIGN_CENTER },
+	{ "RIGHT",		LV_TEXT_ALIGN_RIGHT },
+};
+
+static const struct lua_lv_constant lua_lv_border_side_t[] = {
+	{ "NONE",		LV_BORDER_SIDE_NONE },
+	{ "BOTTOM",		LV_BORDER_SIDE_BOTTOM },
+	{ "TOP",		LV_BORDER_SIDE_TOP },
+	{ "LEFT",		LV_BORDER_SIDE_LEFT },
+	{ "RIGHT",		LV_BORDER_SIDE_RIGHT },
+	{ "FULL",		LV_BORDER_SIDE_FULL },
+	{ "INTERNAL",		LV_BORDER_SIDE_INTERNAL },
+};
+
 static const struct lua_lv_constant lua_lv_misc_constants[] = {
 	{ "SIZE_CONTENT",	LV_SIZE_CONTENT },
 	{ "RADIUS_CIRCLE",	LV_RADIUS_CIRCLE },
@@ -3160,6 +3236,8 @@ static const struct lua_lv_constants lua_lv_constants_table[] = {
 	LUA_LV_CONSTANTS("FLEX_FLOW",	lua_lv_flex_flow_t),
 	LUA_LV_CONSTANTS("FLEX_ALIGN",	lua_lv_flex_align_t),
 	LUA_LV_CONSTANTS("GRID_ALIGN",	lua_lv_grid_align_t),
+	LUA_LV_CONSTANTS("TEXT_ALIGN",	lua_lv_text_align_t),
+	LUA_LV_CONSTANTS("BORDER_SIDE",	lua_lv_border_side_t),
 
 	LUA_LV_CONSTANTS("BAR_MODE",	lua_lv_bar_mode_t),
 	LUA_LV_CONSTANTS("LABEL_LONG",	lua_lv_label_long_mode_t),
