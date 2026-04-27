@@ -1686,6 +1686,14 @@ wslv_mqtt_tele(struct wslv_softc *sc)
 	}
 
 	rv = snprintf(payload + plen, sizeof(payload) - plen,
+	    ",\"lua\":{\"kb\":%d}", lua_gc(sc->sc_L, LUA_GCCOUNT, 0));
+	if (rv == -1)
+		errx(1, "mqtt tele payload");
+	plen += rv;
+	if (plen >= sizeof(payload))
+		errx(1, "mqtt tele payload len");
+
+	rv = snprintf(payload + plen, sizeof(payload) - plen,
 	    ",\"connects\":%u", sc->sc_mqtt_connects);
 	if (rv == -1)
 		errx(1, "mqtt tele payload");
