@@ -494,7 +494,7 @@ main(int argc, char *argv[])
 		lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
 
 	lv_obj_remove_style_all(obj);
-	lv_obj_set_style_bg_opa(obj, LV_OPA_80, LV_PART_MAIN);
+	lv_obj_set_style_bg_opa(obj, LV_OPA_100, LV_PART_MAIN);
 
 	lv_obj_set_pos(obj, 0, 0);
 	lv_obj_set_size(obj, sc->sc_ws_vinfo.width, sc->sc_ws_vinfo.height);
