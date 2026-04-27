@@ -951,7 +951,7 @@ wslv_open(struct wslv_softc *sc, const char *devname, const char **errstr)
 	}
 
 	sc->sc_ws_fd = fd;
-	sc->sc_ws_fblen = sc->sc_ws_vinfo.width * sc->sc_ws_vinfo.height;
+	sc->sc_ws_fblen = len;
 
 	return (0);
 
