@@ -862,6 +862,8 @@ drm_done_vsync(int fd, short events, void *arg)
 {
 	lv_display_t *disp_drv = arg;
 
+	wslv_profile_evt('i', __func__);
+
 	drmHandleEvent(drm_dev.fd, &drm_dev.drm_event_ctx);
 	drmModeAtomicFree(drm_dev.req);
 	drm_dev.req = NULL;
@@ -879,26 +881,36 @@ drm_refresh(void)
 		lv_refr_now(NULL);
 }
 
+static struct drm_buffer *
+drm_map2buf(uint8_t *pixels)
+{
+	size_t i;
+
+	for (i = 0; i < nitems(drm_dev.drm_bufs); i++) {
+		struct drm_buffer *fbuf = &drm_dev.drm_bufs[i];
+		if (fbuf->map == pixels)
+			return (fbuf);
+	}
+
+	return (NULL);
+}
+
 void
 drm_flush(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *pixels)
 {
-	int bufi = (void *)pixels == drm_dev.drm_bufs[1].map;
-	struct drm_buffer *fbuf = &drm_dev.drm_bufs[bufi];
-	uint32_t *map = fbuf->map;
-	uint32_t w = (area->x2 - area->x1 + 1);
-	uint32_t h = (area->y2 - area->y1 + 1);
-	int x, y;
-
-	dbg("bufi %d x %d:%d y %d:%d w %d h %d", bufi,
-	    area->x1, area->x2, area->y1, area->y2, w, h);
+	struct drm_buffer *fbuf = drm_map2buf(pixels);
+	int rv;
 
 	if (!lv_disp_flush_is_last(disp_drv)) {
 		lv_display_flush_ready(disp_drv);
 		return;
 	}
 
-	if (drm_dev.req)
+	if (drm_dev.req) {
+		LV_PROFILER_BEGIN_TAG("drm_wait_vsync");
 		drm_wait_vsync(disp_drv);
+		LV_PROFILER_END_TAG("drm_wait_vsync");
+	}
 
 	drm_dev.cur_buf = fbuf;
 	if (drm_dev.dpms != DRM_MODE_DPMS_ON) {
@@ -907,7 +919,10 @@ drm_flush(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *pixels)
 	}
 
 	/* show fbuf plane */
-	if (drm_dmabuf_set_plane(fbuf)) {
+	LV_PROFILER_BEGIN_TAG("drm_dmabuf_set_plane");
+	rv = drm_dmabuf_set_plane(fbuf);
+	LV_PROFILER_END_TAG("drm_dmabuf_set_plane");
+	if (rv) {
 		err("Flush fail");
 		return;
 	} else

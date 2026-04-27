@@ -1036,10 +1036,10 @@ extern int wslv_refr_period;
 #endif /*LV_USE_SYSMON*/
 
 /** 1: Enable runtime performance profiler */
-#define LV_USE_PROFILER 0
+#define LV_USE_PROFILER 1
 #if LV_USE_PROFILER
     /** 1: Enable the built-in profiler */
-    #define LV_USE_PROFILER_BUILTIN 1
+    #define LV_USE_PROFILER_BUILTIN 0
     #if LV_USE_PROFILER_BUILTIN
         /** Default profiler trace buffer size */
         #define LV_PROFILER_BUILTIN_BUF_SIZE (16 * 1024)     /**< [bytes] */
@@ -1047,19 +1047,19 @@ extern int wslv_refr_period;
     #endif
 
     /** Header to include for profiler */
-    #define LV_PROFILER_INCLUDE "lvgl/src/misc/lv_profiler_builtin.h"
+    #define LV_PROFILER_INCLUDE "wslv_profiler.h"
 
     /** Profiler start point function */
-    #define LV_PROFILER_BEGIN    LV_PROFILER_BUILTIN_BEGIN
+    #define LV_PROFILER_BEGIN    wslv_profile_evt('B', NULL)
 
     /** Profiler end point function */
-    #define LV_PROFILER_END      LV_PROFILER_BUILTIN_END
+    #define LV_PROFILER_END      wslv_profile_evt('E', NULL)
 
     /** Profiler start point function with custom tag */
-    #define LV_PROFILER_BEGIN_TAG LV_PROFILER_BUILTIN_BEGIN_TAG
+    #define LV_PROFILER_BEGIN_TAG(_str) wslv_profile_evt('B', _str)
 
     /** Profiler end point function with custom tag */
-    #define LV_PROFILER_END_TAG   LV_PROFILER_BUILTIN_END_TAG
+    #define LV_PROFILER_END_TAG(_str) wslv_profile_evt('E', _str)
 
     /*Enable layout profiler*/
     #define LV_PROFILER_LAYOUT 1

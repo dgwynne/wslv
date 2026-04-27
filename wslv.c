@@ -286,6 +286,8 @@ static void		wslv_lua_on_connect(struct wslv_softc *);
 
 static void		wslv_sighup(int, short, void *);
 
+void			wslv_profile_init(void);
+
 static void __dead
 usage(void)
 {
@@ -377,6 +379,8 @@ main(int argc, char *argv[])
 		warnx("mqtt host unspecified");
 		usage();
 	}
+
+	wslv_profile_init();
 
 	if (sc->sc_mqtt_device == NULL) {
 		char *dot;
@@ -473,7 +477,6 @@ main(int argc, char *argv[])
 
 	lv_tick_set_cb(wslv_ms);
 	evtimer_set(&sc->sc_tick, wslv_tick, sc);
-	wslv_tick(0, 0, sc);
 
 	if (sc->sc_idle_time.tv_sec % 2)
 		sc->sc_idle_time.tv_usec = 1000000 / 2;
@@ -560,6 +563,7 @@ main(int argc, char *argv[])
 	signal_set(&sc->sc_sighup, SIGHUP, wslv_sighup, sc);
 	signal_add(&sc->sc_sighup, NULL);
 
+	wslv_tick(0, 0, sc);
 	wslv_lua_clocktick(0, 0, sc);
 
 	event_dispatch();
@@ -693,7 +697,9 @@ wslv_pointer_event_proc(struct wslv_pointer *wp,
 			TAILQ_INSERT_TAIL(&wp->wp_events, pe, pe_entry);
 		}
 
+		LV_PROFILER_BEGIN_TAG("lv_indev_read");
 		lv_indev_read(wp->wp_lv_indev);
+		LV_PROFILER_BEGIN_TAG("lv_indev_read");
 		wslv_refresh(sc);
 		break;
 	default:
@@ -711,15 +717,16 @@ wslv_pointer_event(int fd, short revents, void *arg)
 	ssize_t rv;
 	size_t i, n;
 
+	LV_PROFILER_BEGIN_TAG(__func__);
 	rv = read(fd, wsevts, sizeof(wsevts));
-	if (rv == -1) {
+	if (rv == -1)
 		warn("%s", __func__);
-		return;
+	else {
+		n = rv / sizeof(wsevts[0]);
+		for (i = 0; i < n; i++)
+			wslv_pointer_event_proc(wp, &wsevts[i]);
 	}
-
-	n = rv / sizeof(wsevts[0]);
-	for (i = 0; i < n; i++)
-		wslv_pointer_event_proc(wp, &wsevts[i]);
+	LV_PROFILER_END_TAG(__func__);
 }
 
 static void
@@ -819,10 +826,14 @@ static void
 wslv_tick(int nil, short events, void *arg)
 {
 	static const struct timeval rate = { 0, 1000000 / WSLV_REFR_PERIOD };
+	struct wslv_softc *sc = arg;
+	lua_State *L = sc->sc_L;
 
 	evtimer_add(&sc->sc_tick, &rate);
 
+	lua_gc(L, LUA_GCSTOP, 0);
 	lv_timer_handler();
+	lua_gc(L, LUA_GCRESTART, 0);
 }
 
 static void
@@ -2015,7 +2026,9 @@ wslv_lua_clocktick(int nil, short events, void *arg)
 	if (!lua_isfunction(L, -1))
 		goto pop;
 
+	LV_PROFILER_BEGIN_TAG(__func__);
 	rv = lua_pcall(L, 0, 0, 0);
+	LV_PROFILER_END_TAG(__func__);
 	if (rv != 0)
 		warnx("lua pcall clocktick %s", lua_tostring(L, -1));
 
@@ -2044,7 +2057,9 @@ wslv_lua_cmnd(struct wslv_softc *sc, const char *topic, size_t topic_len,
 	lua_pushlstring(L, payload, payload_len);
 
 	sc->sc_L_in_cmnd = 1;
+	LV_PROFILER_BEGIN_TAG(__func__);
 	rv = lua_pcall(L, 2, 0, 0);
+	LV_PROFILER_END_TAG(__func__);
 	sc->sc_L_in_cmnd = 0;
 
 	if (rv != 0)
@@ -2141,7 +2156,9 @@ wslv_lua_mqtt_message(struct wslv_softc *sc,
 	lua_pushinteger(L, qos);
 
 	sc->sc_L_in_cmnd = 1;
+	LV_PROFILER_BEGIN_TAG(__func__);
 	rv = lua_pcall(L, 3, 0, 0);
+	LV_PROFILER_END_TAG(__func__);
 	sc->sc_L_in_cmnd = 0;
 
 	if (rv != 0)

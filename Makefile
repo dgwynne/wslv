@@ -5,7 +5,7 @@ LVGL_CONF_PATH=${.CURDIR}/lv_conf.h
 LVGL_DIR=${.CURDIR}/lvgl
 LVGL_SRC_DIR=${LVGL_DIR}/src
 
-CFLAGS+=-DLV_CONF_PATH='"${LVGL_CONF_PATH}"'
+CFLAGS+=-I${.CURDIR} -DLV_CONF_PATH='"${LVGL_CONF_PATH}"'
 
 LVCFLAGS=-I${X11DIR}/include/freetype2
 LVCOMPILE:=${COMPILE.c} ${LVCFLAGS}
@@ -99,7 +99,7 @@ CFLAGS+=-I${.CURDIR}/amqtt
 # actual program
 
 PROG=wslv
-SRCS=wslv.c
+SRCS=wslv.c wslv_profiler.c
 MAN=
 
 CFLAGS+=${LUA_CFLAGS}
