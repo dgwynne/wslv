@@ -178,6 +178,7 @@ struct wslv_softc {
 
 	lv_obj_t			*sc_offline_obj;
 
+	int				 sc_pointer_cursor;
 	struct wslv_pointer_list	 sc_pointer_list;
 
 	int				 sc_mqtt_family;
@@ -316,7 +317,7 @@ main(int argc, char *argv[])
 
 	TAILQ_INIT(&sc->sc_pointer_list);
 
-	while ((ch = getopt(argc, argv, "46d:h:i:K:l:M:p:rW:")) != -1) {
+	while ((ch = getopt(argc, argv, "46cd:h:i:K:l:M:p:rW:")) != -1) {
 		switch (ch) {
 		case '4':
 			sc->sc_mqtt_family = AF_INET;
@@ -324,6 +325,8 @@ main(int argc, char *argv[])
 		case '6':
 			sc->sc_mqtt_family = AF_INET6;
 			break;
+		case 'c':
+			sc->sc_pointer_cursor = 1;
 		case 'd':
 			sc->sc_mqtt_device = optarg;
 			break;
@@ -787,7 +790,8 @@ wslv_pointer_set(struct wslv_softc *sc)
 		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_read);
 		lv_indev_set_user_data(wp->wp_lv_indev, wp);
 
-		if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL) {
+		if (sc->sc_pointer_cursor ||
+		    wp->wp_ws_type != WSMOUSE_TYPE_TPANEL) {
 			wp->wp_lv_cursor = lv_img_create(lv_scr_act());
 			if (wp->wp_lv_cursor == NULL)
 				err(1, "%s cursor", wp->wp_devname);
