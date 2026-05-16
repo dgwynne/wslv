@@ -1330,7 +1330,7 @@ lua_lv_font_create(lua_State *L)
 	lf->font = lv_freetype_font_create(name,
 	    LV_FREETYPE_FONT_RENDER_MODE_BITMAP, weight, style);
 	if (lf->font == NULL)
-		return luaL_error(L, "unable to create font");
+		return luaL_error(L, "%s: unable to create font", name);
 
 	/* once a font is created it should never go away */
 	lua_newtable(L);
