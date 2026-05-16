@@ -1927,7 +1927,7 @@ wslv_lua_init(struct wslv_softc *sc)
 		case LUA_ERRRUN:
 		case LUA_ERRMEM:
 		case LUA_ERRERR:
-			warnx("%s: %s", lfile, lua_tostring(L, -1));
+			warnx("%s", lua_tostring(L, -1));
 			break;
 		default:
 			warnx("%s: pcall failed: unknown status %d",
