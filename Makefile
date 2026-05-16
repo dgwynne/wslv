@@ -17,7 +17,7 @@ LVGL_SRCS = ${LVGL_CSRCS}
 
 .for S in ${LVGL_SRCS}
 O=${S:T:.c=.o}
-${O}: ${S}
+${O}: ${LV_CONF_PATH} ${S}
 	${LVCOMPILE} -o ${.TARGET} ${.IMPSRC}
 .endfor
 
@@ -99,7 +99,7 @@ CFLAGS+=-I${.CURDIR}/amqtt
 # actual program
 
 PROG=wslv
-SRCS=wslv.c wslv_profiler.c
+SRCS=wslv.c wslv_profiler.c arrow.c
 MAN=
 
 CFLAGS+=${LUA_CFLAGS}

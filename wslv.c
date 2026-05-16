@@ -59,7 +59,7 @@
 
 int wslv_refr_period = WSLV_REFR_PERIOD;
 
-LV_IMG_DECLARE(mouse_cursor_icon);
+LV_IMG_DECLARE(arrow_cursor);
 
 /* lv_spng.c */
 //int	lv_spng_init(void);
@@ -787,15 +787,13 @@ wslv_pointer_set(struct wslv_softc *sc)
 		lv_indev_set_read_cb(wp->wp_lv_indev, wslv_pointer_read);
 		lv_indev_set_user_data(wp->wp_lv_indev, wp);
 
-#if 0
 		if (wp->wp_ws_type != WSMOUSE_TYPE_TPANEL) {
 			wp->wp_lv_cursor = lv_img_create(lv_scr_act());
 			if (wp->wp_lv_cursor == NULL)
 				err(1, "%s cursor", wp->wp_devname);
-			lv_img_set_src(wp->wp_lv_cursor, &mouse_cursor_icon);
+			lv_img_set_src(wp->wp_lv_cursor, &arrow_cursor);
 			lv_indev_set_cursor(wp->wp_lv_indev, wp->wp_lv_cursor);
 		}
-#endif
 
 		event_add(&wp->wp_ev, NULL);
 	}
